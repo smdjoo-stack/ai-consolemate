@@ -1,0 +1,11 @@
+# 교회별 정보 · 비밀 — 절대 올리지 않음
+config.json
+scenes.json
+speakers.json
+manuals/
+*.tmp
+
+# 만들어지는 파일
+dist/
+__pycache__/
+*.pyc

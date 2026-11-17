@@ -1,0 +1,2090 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 콘솔메이트</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<style>
+  /* ---------- 색과 기본값 (어두운 화면 기본, 밝은 모드도 지원) ---------- */
+  :root {
+    --bg:#090b10; --card:rgba(20,24,34,.78); --raise:#1a1f2c; --raise2:#222839;
+    --text:#eef0f6; --muted:#8a92a6; --line:rgba(255,255,255,.07); --line2:rgba(255,255,255,.14);
+    --accent:#8b6cff; --accent2:#22d3ee; --grad:linear-gradient(135deg,#8b6cff 0%,#4f8bff 55%,#22d3ee 100%);
+    --ok:#34d399; --err:#fb7185; --bar:rgba(255,255,255,.08); --off:#3b4255;
+    --shadow:0 12px 40px rgba(0,0,0,.45); --glow1:rgba(139,108,255,.18); --glow2:rgba(34,211,238,.12);
+    --me:linear-gradient(135deg,#7a5cff,#4f7dff);
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg:#f2f3f8; --card:rgba(255,255,255,.86); --raise:#f6f7fb; --raise2:#eceef5;
+      --text:#121620; --muted:#677086; --line:rgba(18,22,32,.07); --line2:rgba(18,22,32,.15);
+      --bar:rgba(18,22,32,.08); --off:#c6cbd8; --shadow:0 12px 36px rgba(40,50,90,.10);
+      --glow1:rgba(139,108,255,.12); --glow2:rgba(34,211,238,.10);
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }   /* 숨김 표시가 다른 스타일에 지지 않도록 */
+  html, body { height: 100%; }
+  body {
+    margin:0; color:var(--text);
+    font: 15px/1.55 "Pretendard", "Pretendard Variable", system-ui, "Malgun Gothic", sans-serif;
+    letter-spacing: -0.01em;
+    background:
+      radial-gradient(900px 500px at 8% -10%, var(--glow1), transparent 60%),
+      radial-gradient(800px 500px at 100% 0%, var(--glow2), transparent 60%),
+      var(--bg);
+    display:flex; flex-direction:column;
+  }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 99px; border: 3px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* ---------- 위쪽 막대 ---------- */
+  .topbar { display:flex; align-items:center; gap:14px; padding: 14px 22px; }
+  .logo { width:38px; height:38px; border-radius:12px; background: var(--grad); display:grid; place-items:center;
+          box-shadow: 0 6px 20px rgba(110,90,255,.35); flex:none; }
+  .logo svg { width:22px; height:22px; }
+  .brandtext { display:flex; flex-direction:column; line-height:1.2; }
+  .brandtext b { font-size:17px; font-weight:800; letter-spacing:-0.02em; }
+  .brandtext span { font-size:12px; color: var(--muted); }
+  .grow { flex:1; }
+  .pill { display:inline-flex; align-items:center; gap:8px; padding:6px 12px; border-radius:99px; font-size:13px;
+          background: var(--card); border:1px solid var(--line); color: var(--muted); backdrop-filter: blur(12px); }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--err); box-shadow: 0 0 0 3px rgba(251,113,133,.18); }
+  .dot.on { background: var(--ok); box-shadow: 0 0 0 3px rgba(52,211,153,.18); }
+  .muted { color: var(--muted); font-size: 13px; }
+  .pill b { color: var(--text); font-weight:600; }
+  .pill.st-ok { border-color: rgba(52,211,153,.35); }
+  .pill.st-slow, .pill.st-off { border-color: rgba(251,191,36,.45); }
+  .pill.st-down { border-color: rgba(251,113,133,.55); background: rgba(251,113,133,.10); color: var(--err); }
+  .dot.slow, .dot.off { background:#fbbf24; box-shadow: 0 0 0 3px rgba(251,191,36,.2); }
+  .dot.down { animation: blink 1s steps(2, start) infinite; }
+  @keyframes blink { to { visibility: hidden; } }
+
+  /* 문제 알림 띠 */
+  #alerts { display:flex; flex-direction:column; gap:8px; padding: 0 22px; }
+  #alerts:not(:empty) { margin-bottom: 14px; }
+  .alert { display:flex; gap:12px; align-items:flex-start; padding:12px 16px; border-radius:16px; border:1px solid; backdrop-filter: blur(12px);
+           animation: slidein .25s ease-out; }
+  .alert .ic { flex:none; width:26px; height:26px; border-radius:50%; display:grid; place-items:center; font-weight:800; font-size:14px; color:#fff; }
+  .alert .tx { font-weight:600; }
+  .alert .hint { font-size:13px; color: var(--muted); margin-top:2px; }
+  .alert.err { background: rgba(251,113,133,.12); border-color: rgba(251,113,133,.5); }
+  .alert.err .ic { background: var(--err); }
+  .alert.warn { background: rgba(251,191,36,.10); border-color: rgba(251,191,36,.45); }
+  .alert.warn .ic { background: #f59e0b; }
+  .alert.good { background: rgba(52,211,153,.12); border-color: rgba(52,211,153,.45); }
+  .alert.good .ic { background: var(--ok); }
+  .alert .grow { flex:1; }
+  .alert .hidebtn { flex:none; align-self:center; }
+  .hiddenalerts { font-size:12.5px; color: var(--muted); display:flex; align-items:center; gap:8px; padding: 0 4px; }
+  @keyframes slidein { from { transform: translateY(-6px); } }
+  @media (max-width: 760px) { .brandtext span, #updated { display:none; } .topbar { flex-wrap: wrap; } .brandtext b { white-space: nowrap; } }
+
+  button { font: inherit; border:1px solid var(--line2); background: var(--raise); color:var(--text); border-radius:12px;
+           padding:7px 14px; cursor:pointer; transition: background .15s, border-color .15s, transform .05s; }
+  button:hover { border-color: var(--accent); background: var(--raise2); }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity:.5; cursor: default; }
+  .iconbtn { width:36px; height:36px; padding:0; display:grid; place-items:center; border-radius:12px; }
+  .iconbtn svg { width:18px; height:18px; }
+
+  /* ---------- 큰 틀 ---------- */
+  .app { flex:1; min-height:0; display:grid; grid-template-columns: minmax(0, 1.55fr) minmax(340px, 1fr); gap:18px; padding: 0 22px 22px; }
+  @media (max-width: 900px) { .app { grid-template-columns: 1fr; } .chat { height: 80vh; } body { height:auto; } }
+  .panel { background: var(--card); border:1px solid var(--line); border-radius:22px; padding:18px 20px; min-height:0;
+           display:flex; flex-direction:column; box-shadow: var(--shadow); backdrop-filter: blur(16px); }
+  .head { display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap: wrap; }
+  h1, h2 { margin:0; font-size:18px; font-weight:700; letter-spacing:-0.02em; }
+  .sub-title { font-size:13px; color: var(--muted); }
+
+  /* 탭(흐름도 / 카드) */
+  .tabs { display:inline-flex; gap:4px; padding:4px; border-radius:14px; background: var(--raise); border:1px solid var(--line); }
+  .tabs button { border:none; background: transparent; color: var(--muted); padding:6px 14px; border-radius:10px; font-size:14px; }
+  .tabs button:hover { background: var(--raise2); color: var(--text); }
+  .tabs button.sel { background: var(--grad); color:#fff; box-shadow: 0 4px 14px rgba(110,90,255,.35); }
+
+  /* ---------- 카드 보기 ---------- */
+  .map { overflow-y:auto; min-height:0; margin-right:-8px; padding-right:8px; }
+  .legend { display:flex; flex-wrap:wrap; gap:6px; margin-bottom: 14px; }
+  .chip { display:inline-flex; align-items:center; gap:6px; padding:4px 11px; border-radius:999px; font-size:13px;
+          background: color-mix(in srgb, var(--c) 14%, transparent); border:1px solid color-mix(in srgb, var(--c) 40%, transparent); }
+  .chip .sw { width:8px; height:8px; border-radius:50%; background: var(--c); }
+  .chip.dim { opacity:.45; text-decoration: line-through; }
+  .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap:12px; }
+  .spk { border:1px solid var(--line); border-radius:16px; padding:14px; cursor:pointer; background: var(--raise); transition: border-color .15s, transform .15s; }
+  .spk:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .spk.main { grid-column: 1 / -1; }
+  .spk h3 { margin:0 0 2px; font-size:16px; display:flex; align-items:center; gap:8px; }
+  .spk .meta { font-size:12.5px; color:var(--muted); margin-bottom:8px; }
+  .spk.isMuted { opacity: .6; }
+  .tag { font-size:11.5px; padding:1px 8px; border-radius:99px; background: var(--err); color:#fff; }
+  .row { display:grid; grid-template-columns: 110px 1fr 54px; align-items:center; gap:8px; font-size:13.5px; margin:5px 0; }
+  .row .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:flex; align-items:center; gap:6px; }
+  .row .nm .sw { flex:none; width:8px; height:8px; border-radius:50%; background: var(--c); }
+  .bar { height:8px; border-radius:99px; background: var(--bar); overflow:hidden; }
+  .bar > i { display:block; height:100%; background: var(--c); border-radius:99px; }
+  .row.off .bar > i { background: var(--off); }
+  .row.off { color: var(--muted); }
+  .row .db { text-align:right; font-variant-numeric: tabular-nums; color: var(--muted); font-size:12.5px; }
+  .empty { color: var(--muted); font-size:13px; padding: 6px 0; }
+  .main .rows { columns: 2 260px; column-gap: 24px; }
+  .main .row { break-inside: avoid; }
+
+  /* ---------- 흐름도 ---------- */
+  .flowhead { display:flex; gap:8px; font-size:12px; font-weight:600; color:var(--muted); margin: 0 2px 6px; text-transform: none; }
+  .flowhead span:not(.grow) { padding:3px 10px; border-radius:99px; background: var(--raise); border:1px solid var(--line); }
+  #flow svg { display:block; width:100%; height:auto; }
+  #flow .ln { transition: opacity .2s; }
+  #flow .ln.mx { stroke: var(--muted); stroke-opacity: .55; }
+  #flow svg.focus .ln { opacity: .06; }
+  #flow svg.focus .ln.on { opacity: 1; filter: drop-shadow(0 0 5px rgba(139,108,255,.45)); }
+  #flow svg.focus .nd { opacity: .3; }
+  #flow svg.focus .nd.on { opacity: 1; }
+  #flow .nd { cursor: pointer; transition: opacity .2s; }
+  #flow .lbl { fill: var(--text); font-size: 13px; font-weight: 500; }
+  #flow .lbl.dim { fill: var(--muted); text-decoration: line-through; }
+  #flow .sub { fill: var(--muted); font-size: 11px; }
+  #flow .box { fill: var(--raise); stroke: var(--line2); transition: stroke .15s, fill .15s; }
+  #flow .nd:hover .box { stroke: var(--accent); fill: var(--raise2); }
+  #flow svg.focus .nd.on .box { stroke: var(--accent2); }
+  #flow .box.muted { stroke: var(--err); stroke-dasharray: 4 3; }
+  #flow .tagm { fill: var(--err); font-size: 11px; font-weight: 600; }
+  #flow .srctag { fill: var(--muted); font-size: 11px; font-weight: 600; }
+  #flow .fxpill { cursor:pointer; }
+  #flow .fxpill rect { fill: var(--raise2); stroke: #c084fc; stroke-width:1.5; filter: drop-shadow(0 1px 3px rgba(0,0,0,.45)); }
+  #flow .fxpill text { fill: #e9d5ff; font-size:10.5px; font-weight:600; }
+  #flow .fxpill:hover rect { fill: #3b2a5c; }
+  #flow .fxpill.off rect { fill: var(--raise); stroke-dasharray: 3 2; stroke-opacity:.7; }
+  #flow .fxpill.off text { fill: var(--muted); text-decoration: line-through; }
+  #flow svg.focus .fxpill { opacity:.35; }
+  @media (prefers-color-scheme: light) { #flow .fxpill text { fill: #6b21a8; } }
+  .fxcard.flash { outline: 2px solid #c084fc; outline-offset: 2px; transition: outline .2s; }
+  #flow .outtag { fill: var(--accent2); font-size: 11px; font-weight: 600; }
+  #flow .outtag.none { fill: var(--muted); font-weight: 400; }
+  .otherout { margin-top:10px; padding:10px 14px; border-radius:14px; background: var(--raise); border:1px solid var(--line); font-size:13px; }
+  .otherout ul { margin:6px 0 0; padding-left:18px; color: var(--muted); }
+  .otherout li { margin:2px 0; }
+
+  /* 선택한 항목의 조절판 */
+  .hintbox { margin-top:12px; padding:12px 16px; border-radius:14px; background: var(--raise); border:1px dashed var(--line2); font-size:14px; color: var(--muted); }
+  .hintbox b { color: var(--text); }
+  .infobox { position:relative; margin-top:12px; padding:16px 18px; border-radius:18px; background: var(--raise); border:1px solid var(--line2); overflow:hidden; }
+  .infobox::before { content:""; position:absolute; inset:0 0 auto 0; height:3px; background: var(--grad); }
+  .infohead { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px; font-size:16px; }
+  .infohead b { font-weight:700; letter-spacing:-0.02em; }
+  .infohead button { font-size:13px; padding:5px 12px; border-radius:10px; }
+  .infohead label { display:flex; align-items:center; gap:6px; cursor:pointer; }
+  .infohead input[type=checkbox] { accent-color: var(--accent); width:16px; height:16px; }
+  .infobox .row { grid-template-columns: minmax(90px, 160px) 1fr 54px; font-size:14.5px; }
+  .ctlhelp { font-size:12.5px; margin: 0 0 10px; }
+  .mastertitle { font-size:13px; font-weight:700; margin: 6px 0 2px; }
+  .crow.master { background: rgba(251,191,36,.07); border:1px solid rgba(251,191,36,.25); margin: 4px -8px 2px; }
+  .crow { display:grid; grid-template-columns: minmax(80px, 170px) 32px 1fr 32px 52px 64px; align-items:center; gap:10px;
+          padding:6px 8px; margin:2px -8px; border-radius:12px; font-size:14.5px; transition: background .15s; }
+  .crow:hover { background: var(--raise2); }
+  .crow .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:flex; align-items:center; gap:8px; font-weight:500; }
+  .crow .nm .sw { flex:none; width:10px; height:10px; border-radius:50%; background: var(--c); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 22%, transparent); }
+  .crow .db { text-align:right; font-variant-numeric: tabular-nums; font-weight:600; }
+  /* 슬라이더 */
+  .crow input[type=range] { -webkit-appearance:none; appearance:none; width:100%; height:6px; border-radius:99px; cursor:pointer; margin:0;
+    background: linear-gradient(to right, var(--c) 0 var(--p, 50%), var(--bar) var(--p, 50%) 100%); }
+  .crow input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:18px; height:18px; border-radius:50%; background:#fff;
+    border: 3px solid var(--c); box-shadow: 0 2px 8px rgba(0,0,0,.35); }
+  .crow input[type=range]::-moz-range-thumb { width:14px; height:14px; border-radius:50%; background:#fff; border: 3px solid var(--c); }
+  .crow input[type=range]:focus-visible { outline: 2px solid var(--accent2); outline-offset: 6px; }
+  .crow .step { width:32px; height:32px; padding:0; border-radius:50%; font-size:17px; line-height:1; display:grid; place-items:center; }
+  .crow .tog { padding:5px 0; font-size:12.5px; font-weight:600; border-radius:99px; color: var(--muted); background: transparent; }
+  .crow .tog.is-on { background: rgba(52,211,153,.16); border-color: rgba(52,211,153,.55); color: var(--ok); }
+  .crow.off .nm, .crow.off .db { color: var(--muted); }
+  .crow.off input[type=range] { background: linear-gradient(to right, var(--off) 0 var(--p, 50%), var(--bar) var(--p, 50%) 100%); }
+  .crow.off input[type=range]::-webkit-slider-thumb { border-color: var(--off); }
+  .ctlmsg { color: var(--err); font-size: 13px; min-height: 1em; }
+  @media (max-width: 560px) { .crow { grid-template-columns: 70px 28px 1fr 28px 42px 52px; gap:6px; font-size:13px; } }
+  .map > div > p.muted { white-space: pre-line; margin-top: 14px; }
+
+  /* ---------- 채널 설정 패널 / 이펙트 ---------- */
+  .detail { margin-top:12px; }
+  .detail-head { display:flex; align-items:center; gap:10px; margin: 4px 2px 10px; flex-wrap:wrap; }
+  .detail-head b { font-size:16px; }
+  .dgrid { display:grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap:12px; }
+  .dcard { padding:14px 16px; border-radius:16px; background: var(--raise); border:1px solid var(--line); }
+  .dcard h4 { margin:0 0 6px; font-size:14px; display:flex; align-items:center; gap:8px; }
+  .dcard h4 .meta { font-weight:400; font-size:12px; color: var(--muted); }
+  .dcard h4 .grow { flex:1; }
+  .prow { display:grid; grid-template-columns: minmax(70px, 110px) 1fr 70px; align-items:center; gap:10px; padding:5px 0; font-size:13.5px; --c: var(--accent); }
+  .prow .nm { color: var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .prow .db { text-align:right; font-variant-numeric: tabular-nums; font-weight:600; font-size:13px; }
+  .prow input[type=range] { -webkit-appearance:none; appearance:none; width:100%; height:6px; border-radius:99px; cursor:pointer; margin:0;
+    background: linear-gradient(to right, var(--c) 0 var(--p, 50%), var(--bar) var(--p, 50%) 100%); }
+  .prow input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:16px; height:16px; border-radius:50%; background:#fff; border:3px solid var(--c); box-shadow: 0 2px 6px rgba(0,0,0,.35); }
+  .prow input[type=range]::-moz-range-thumb { width:12px; height:12px; border-radius:50%; background:#fff; border:3px solid var(--c); }
+  .prow input[type=range]:focus-visible { outline: 2px solid var(--accent2); outline-offset: 6px; }
+  .prow.disabled { opacity:.45; }
+  .ptog { padding:4px 12px; font-size:12.5px; font-weight:600; border-radius:99px; color: var(--muted); background: transparent; }
+  .ptog.is-on { background: rgba(52,211,153,.16); border-color: rgba(52,211,153,.55); color: var(--ok); }
+  .ptog.warn.is-on { background: rgba(251,191,36,.16); border-color: rgba(251,191,36,.6); color: #fbbf24; }
+  .fxgrid { display:grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap:12px; }
+  .fxcard { padding:14px; border-radius:16px; background: var(--raise); border:1px solid var(--line); }
+  .fxcard .top { display:flex; align-items:center; gap:10px; margin-bottom:4px; }
+  .fxcard .slot { width:28px; height:28px; border-radius:9px; display:grid; place-items:center; font-weight:700; font-size:13px; color:#fff; background: var(--grad); }
+  .fxcard .model { font-weight:700; }
+  .fxcard .use { font-size:12.5px; color: var(--muted); margin: 2px 0 6px; }
+  .fxcard .use b { color: var(--text); font-weight:600; }
+  .fxp { display:grid; grid-template-columns: 1fr 28px 70px 28px; align-items:center; gap:6px; padding:3px 0; font-size:13px; }
+  .fxp .nm { color: var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .fxp .val { text-align:center; font-variant-numeric: tabular-nums; font-weight:600; }
+  .fxp .step { width:28px; height:26px; padding:0; border-radius:8px; font-size:15px; line-height:1; }
+  .fxp.big { margin: 4px 0 6px; padding:8px 10px; border-radius:12px; background: var(--raise2); grid-template-columns: 32px 1fr 32px; row-gap:4px; }
+  .fxp.big .nm { color: var(--text); font-weight:600; grid-column: 1 / -1; white-space: normal; }
+  .fxp.big .step { width:32px; height:30px; }
+  .fxp.big .val { font-size:16px; color: var(--accent2); }
+  .fxcard details { margin-top:6px; border-top:1px solid var(--line); padding-top:6px; }
+  .fxcard summary { cursor:pointer; font-size:12.5px; color: var(--muted); padding:2px 0; }
+  .fxcard summary:hover { color: var(--text); }
+
+  /* ---------- 예배 순서 ---------- */
+  .scenebar { display:flex; align-items:center; gap:14px; margin: 0 22px 16px; padding: 12px 14px 12px 18px; border-radius:20px;
+              background: var(--card); border:1px solid var(--line); box-shadow: var(--shadow); backdrop-filter: blur(16px); }
+  .sb-title { display:flex; flex-direction:column; line-height:1.25; flex:none; }
+  .sb-title b { font-size:15px; }
+  .sb-title span { font-size:11.5px; color: var(--muted); }
+  .sb-list { flex:1; display:flex; gap:10px; overflow-x:auto; padding:2px; min-width:0; }
+  .scene { position:relative; display:flex; flex:none; border-radius:16px; background: var(--raise); border:1px solid var(--line2);
+           transition: border-color .15s, transform .1s; }
+  .scene:hover { border-color: var(--sc); }
+  .scene.active { border-color: var(--sc); box-shadow: 0 0 0 3px color-mix(in srgb, var(--sc) 30%, transparent); }
+  .scene .sc-main { display:flex; align-items:center; gap:10px; border:none; background:transparent; padding:9px 6px 9px 12px; border-radius:16px 0 0 16px; text-align:left; }
+  .scene .sc-main:hover { background: transparent; }
+  .sc-num { width:24px; height:24px; border-radius:8px; display:grid; place-items:center; font-size:12px; font-weight:700; color:#fff; background: var(--sc); flex:none; }
+  .sc-name { display:block; font-weight:700; font-size:15px; white-space:nowrap; }
+  .sc-state { display:block; font-size:11.5px; color: var(--muted); white-space:nowrap; }
+  .sc-state.match { color: var(--ok); }
+  .scene .sc-more { border:none; background:transparent; padding:0 10px; border-radius:0 16px 16px 0; color: var(--muted); font-size:18px; }
+  .scene .sc-more:hover { color: var(--text); background: var(--raise2); }
+  button.primary { background: var(--grad); color:#fff; border:none; box-shadow: 0 6px 18px rgba(110,90,255,.3); white-space:nowrap; }
+  button.primary:hover { filter: brightness(1.08); background: var(--grad); }
+  button.ghost { background: transparent; white-space:nowrap; }
+  button.danger { color: var(--err); border-color: rgba(251,113,133,.5); background: transparent; }
+  .sb-empty { font-size:13px; color: var(--muted); padding: 8px 4px; }
+  @media (max-width: 760px) { .scenebar { flex-wrap: wrap; } .sb-list { order:3; flex-basis:100%; } }
+
+  /* 대화상자 */
+  dialog { border:1px solid var(--line2); border-radius:22px; padding:0; width:min(560px, calc(100vw - 32px)); max-height: 82vh;
+           background: var(--raise); color: var(--text); box-shadow: 0 30px 80px rgba(0,0,0,.5); }
+  dialog::backdrop { background: rgba(5,7,12,.55); backdrop-filter: blur(3px); }
+  .dlg { display:flex; flex-direction:column; max-height: 82vh; }
+  .dlg header { padding:18px 22px 10px; }
+  .dlg header h3 { margin:0; font-size:18px; letter-spacing:-0.02em; }
+  .dlg header p { margin:4px 0 0; font-size:13px; color: var(--muted); }
+  .dlg .body { padding: 6px 22px; overflow:auto; }
+  .dlg footer { display:flex; gap:8px; justify-content:flex-end; align-items:center; padding:14px 22px 18px; border-top:1px solid var(--line); flex-wrap:wrap; }
+  .chg { list-style:none; padding:0; margin:0; }
+  .chg li { padding:7px 10px; border-radius:10px; font-size:14px; }
+  .chg li:nth-child(odd) { background: var(--raise2); }
+  .field { display:block; margin: 8px 0 14px; }
+  .field input[type=text] { width:100%; font: inherit; font-size:16px; padding:10px 12px; border-radius:12px; border:1px solid var(--line2); background: var(--bg); color: var(--text); }
+  .field input[type=text]:focus { outline:none; border-color: var(--accent); box-shadow: 0 0 0 4px rgba(139,108,255,.15); }
+  .opt { display:flex; gap:10px; align-items:flex-start; padding:9px 10px; border-radius:12px; cursor:pointer; }
+  .opt:hover { background: var(--raise2); }
+  .opt input { margin-top:3px; accent-color: var(--accent); width:17px; height:17px; flex:none; }
+  .opt small { display:block; color: var(--muted); font-size:12.5px; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin: 4px 0 10px; }
+  .chips span { font-size:12px; padding:3px 10px; border-radius:99px; background: var(--raise2); border:1px solid var(--line); color: var(--muted); }
+  .grow-sp { flex:1; }
+  #routeSvg svg { display:block; width:100%; height:auto; }
+  .rd-head { fill: var(--muted); font-size:12px; font-weight:700; }
+  .rd-box { fill: var(--raise2); stroke: var(--line2); stroke-width:1.5; transition: fill .15s; }
+  .rd-box.sock { fill: var(--bg); stroke-dasharray: 3 3; }
+  .rd-t { fill: var(--muted); font-size:11.5px; }
+  .rd-t.b { fill: var(--text); font-weight:600; }
+  .rd-ln { fill:none; stroke-width:2.5; stroke-opacity:.75; transition: opacity .15s; }
+  .rd-nd { cursor:pointer; }
+  .rd-nd:hover .rd-box { fill: var(--raise); stroke: var(--accent); }
+  .rd-mid { stroke: var(--line2); stroke-dasharray: 2 6; }
+  .rd-box.spkbox { fill: rgba(52,211,153,.10); stroke: rgba(52,211,153,.7); }
+  .rd-nd.spk.guess .rd-box.spkbox { fill: transparent; stroke: var(--line2); stroke-dasharray: 4 3; }
+  .rd-nd.spk.guess .rd-t { fill: var(--muted); font-style: italic; }
+  .rd-ln.spkln { stroke-dasharray: 5 4; }
+  .rd-midtxt { fill: var(--muted); font-size:11px; }
+  #routeSvg svg.focus .rd-ln.out { opacity:.12; }
+  #routeSvg svg.focus .rd-ln.out.on { opacity:1; stroke-width:3.5; }
+  .rtsec { margin-bottom:16px; padding:14px 16px; border-radius:16px; background: var(--raise); border:1px solid var(--line); }
+  .rtsec h4 { margin:0 0 8px; font-size:14px; }
+  .rtsec h4 .muted { font-weight:400; font-size:12px; }
+  table.rt { width:100%; border-collapse: collapse; font-size:14px; }
+  table.rt td { padding:6px 8px; border-top:1px solid var(--line); vertical-align: middle; }
+  table.rt tr:first-child td { border-top:none; }
+  table.rt tr:hover td { background: var(--raise2); }
+  table.rt td.num { width:34px; color: var(--muted); text-align:center; font-variant-numeric: tabular-nums; }
+  table.rt td.arrow { width:24px; color: var(--muted); text-align:center; }
+  table.rt td.act { width:1%; white-space:nowrap; text-align:right; }
+  table.rt .sw { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:8px; vertical-align:middle; }
+  .routebox { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:10px; padding:10px 12px; border-radius:12px;
+              background: var(--raise2); border:1px solid var(--line); font-size:13.5px; }
+  .routebox b { font-weight:700; }
+  button.mini { font-size:12px; padding:3px 10px; border-radius:9px; }
+  .sel2 { display:flex; gap:8px; margin:6px 0 12px; }
+  .sel2 select { flex:1; font: inherit; padding:9px 10px; border-radius:12px; border:1px solid var(--line2); background: var(--bg); color: var(--text); }
+  .preview { padding:10px 12px; border-radius:12px; background: var(--raise2); border:1px solid var(--line2); font-size:14px; white-space: pre-line; }
+  .preview.warn { border-color: rgba(251,191,36,.55); background: rgba(251,191,36,.08); }
+  .stabs { flex-wrap: wrap; }
+  .wzsteps { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
+  .wzsteps span { font-size:12px; padding:3px 10px; border-radius:99px; background: var(--raise2); color: var(--muted); border:1px solid var(--line); }
+  .wzsteps span.on { background: var(--grad); color:#fff; border-color: transparent; }
+  .wzsteps span.done { color: var(--ok); border-color: rgba(52,211,153,.45); }
+  .cplist { margin: 6px 0 4px; }
+  hr.sep { border:none; border-top:1px solid var(--line); margin:16px 0; }
+  .x32only { display:none; }
+  body[data-fam="x32"] .x32only { display:block; }
+  body[data-fam="x32"] .wingonly, body[data-fam="x32"] #viewRoute button.mini, body[data-fam="x32"] #routeOut,
+  body[data-fam="x32"] #routeUndoBtn { display:none !important; }
+  .mnlist { display:flex; flex-direction:column; gap:8px; }
+  .mnitem { display:flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid var(--line); border-radius:12px; margin-top:6px; }
+  .mnitem.on { border-color: var(--ok); }
+  .mnitem .grow { flex:1; min-width:0; }
+  .mnitem .muted { font-size:12.5px; }
+  .mnitem .tag { background: var(--ok); }
+  .dlg .sm, a.btnlink.sm { padding:5px 10px; font-size:13px; }
+  a.btnlink.sm { background: var(--raise); color: var(--text); border:1px solid var(--line2); font-weight:500; }
+  .mnways { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:8px 0; font-size:14px; }
+  .mnways > div { padding:10px 12px; border:1px solid var(--line); border-radius:12px; display:flex; flex-direction:column; gap:6px; }
+  @media (max-width:640px) { .mnways { grid-template-columns:1fr; } }
+  .hintbox.ok { border-color: var(--ok); color: var(--text); }
+  .hintbox.err { border-color: var(--err); color: var(--err); }
+  .spin { display:inline-block; width:12px; height:12px; border:2px solid var(--line2); border-top-color: var(--ok); border-radius:50%; animation: spin 1s linear infinite; vertical-align:-1px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  a.btnlink { display:inline-block; padding:8px 14px; border-radius:12px; background: var(--grad); color:#fff; text-decoration:none; font-weight:600; }
+  .keystate { padding:10px 14px; border-radius:12px; background: var(--raise2); border:1px solid var(--line2); margin: 4px 0 12px; font-size:14px; }
+  .keystate.ok { border-color: rgba(52,211,153,.45); color: var(--ok); }
+  .keystate.ok b { color: var(--text); }
+  .steps { margin: 0 0 10px; padding-left: 20px; font-size:14px; line-height:1.7; }
+  .steps a { color: var(--accent2); }
+  .keyrow { display:flex; gap:8px; margin-top:6px; }
+  .keyrow input { flex:1; }
+  code { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; padding: 1px 5px; border-radius:6px; background: var(--raise2); }
+
+  /* 알림 토스트 */
+  #toast { position:fixed; left:50%; bottom:26px; transform: translateX(-50%) translateY(20px); opacity:0; pointer-events:none;
+           padding:11px 18px; border-radius:14px; background: var(--raise2); border:1px solid var(--line2); box-shadow: var(--shadow);
+           transition: opacity .2s, transform .2s; font-weight:600; z-index:50; }
+  #toast.show { opacity:1; transform: translateX(-50%); }
+  #toast.err { color: var(--err); border-color: rgba(251,113,133,.5); }
+
+  /* ---------- 대화 ---------- */
+  #log { flex:1; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:2px; margin-right:-8px; padding-right:8px; }
+  .msg { padding:11px 15px; border-radius:18px; margin:6px 0; max-width: 92%; white-space: pre-wrap; word-break: break-word; font-size:15px; }
+  .me { background: var(--me); color:#fff; margin-left:auto; border-bottom-right-radius:6px; box-shadow: 0 6px 18px rgba(90,80,255,.25); }
+  .ai { background: var(--raise); border:1px solid var(--line); border-bottom-left-radius:6px; }
+  .actions { display:flex; flex-wrap:wrap; gap:6px; margin: 2px 0 4px; }
+  .actions div { font-size: 12px; color: var(--muted); padding:3px 10px; border-radius:99px; background: var(--raise); border:1px solid var(--line);
+                 max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .actions .bad { color: var(--err); border-color: rgba(251,113,133,.4); }
+  .quick { display:flex; flex-wrap:wrap; gap:8px; margin: 10px 0; }
+  .quick button { font-size: 13px; padding:6px 12px; border-radius:99px; background: transparent; }
+  #f { display:flex; align-items:flex-end; gap:8px; padding:8px; border-radius:18px; background: var(--raise); border:1px solid var(--line2); transition: border-color .15s, box-shadow .15s; }
+  #f:focus-within { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(139,108,255,.15); }
+  textarea { flex:1; font: inherit; padding:8px 10px; border:none; outline:none; background: transparent; color:var(--text); resize:none; height: 52px; }
+  textarea::placeholder { color: var(--muted); }
+  #send { width:44px; height:44px; padding:0; border:none; border-radius:14px; background: var(--grad); color:#fff; display:grid; place-items:center;
+          box-shadow: 0 6px 18px rgba(110,90,255,.35); flex:none; }
+  #send svg { width:20px; height:20px; }
+  .guide { font-size: 15px; }
+  .guide li { margin: 8px 0; padding: 10px 14px; background: var(--raise); border:1px solid var(--line); border-radius: 12px; list-style: none; }
+  .guide ul { padding: 0; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="logo" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4"/></svg>
+  </div>
+  <div class="brandtext"><b>AI 콘솔메이트</b><span id="brandSub">Behringer WING 음향 도우미</span></div>
+  <span class="grow"></span>
+  <span class="muted" id="updated"></span>
+  <span class="pill" id="status" title="콘솔(WING)과의 통신 상태"><span class="dot"></span>콘솔 확인 중…</span>
+  <span class="pill" id="aiPill" title="AI(Claude) 대화 상태"><span class="dot"></span>AI 확인 중…</span>
+  <button id="settingsBtn" class="iconbtn" title="설정 (API 키)" aria-label="설정">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  </button>
+  <button id="refresh" class="iconbtn" title="새로고침" aria-label="새로고침">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 4v5h-5"/></svg>
+  </button>
+</header>
+
+<div id="alerts" aria-live="polite"></div>
+
+<!-- 예배 순서 버튼 -->
+<section class="scenebar" aria-label="예배 순서">
+  <div class="sb-title"><b>예배 순서</b><span>누르면 바뀔 내용을 먼저 보여 드려요 · 단축키 Alt+숫자</span></div>
+  <div class="sb-list" id="sceneList"><span class="muted">불러오는 중…</span></div>
+  <button id="sceneUndo" class="ghost" hidden>↶ 되돌리기</button>
+  <button id="sceneAdd" class="primary">＋ 지금 상태 저장</button>
+</section>
+<dialog id="dlg"></dialog>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<div class="app">
+  <!-- 왼쪽: 소리 흐름 -->
+  <section class="panel">
+    <div class="head">
+      <div>
+        <h1>소리가 어디로 가나요?</h1>
+        <div class="sub-title">악기·마이크에서 스피커·모니터까지의 흐름</div>
+      </div>
+      <span class="grow"></span>
+      <div class="tabs">
+        <button data-view="flow" class="sel">흐름도</button>
+        <button data-view="cards">카드</button>
+        <button data-view="fx">이펙트</button>
+        <button data-view="route">라우팅</button>
+      </div>
+    </div>
+    <div id="routeUndoBar" class="routebox" hidden style="margin:0 0 10px"><span></span><span class="grow"></span><button id="routeUndoBtn">↶ 라우팅 되돌리기</button></div>
+    <div class="map">
+      <div id="viewFlow">
+        <div class="flowhead"><span>🎤 입력 단자 · 악기·마이크</span><span class="grow"></span><span>✨ 이펙트</span><span>🔊 스피커·모니터 · 🔌 출력 단자/스피커</span><span id="flowhead3" hidden style="margin-left:24px">📺 추가 출력</span></div>
+        <div id="flow"><div class="empty">불러오는 중…</div></div>
+        <div id="otherOut"></div>
+
+        <div id="flowInfo"></div>
+        <div id="flowDetail"></div>
+        <p class="muted">선이 굵고 진할수록 그 스피커에서 크게 들립니다. 점선은 뮤트되어 지금은 들리지 않는 연결입니다.</p>
+      </div>
+      <div id="viewRoute" hidden>
+        <p class="muted wingonly" style="margin-top:0">콘솔 ROUTING 화면과 같은 내용이에요. 각 줄의 <b>바꾸기</b>를 누르면 바뀔 내용을 먼저 보여 주고, 확인해야 적용돼요. ⚠ 예배 중에는 바꾸지 마세요.</p>
+        <div class="hintbox x32only" style="margin-top:0">X32/M32: 어느 입력 단자가 어느 채널로 들어오는지만 보여 드려요. 단자 바꾸기와 출력 단자 보기는 아직 안 되니 콘솔의 ROUTING 화면에서 해 주세요.</div>
+        <div id="routeTab"><div class="empty">불러오는 중…</div></div>
+      </div>
+      <div id="viewFx" hidden>
+        <p class="muted" style="margin-top:0">콘솔 EFFECTS 화면의 16칸입니다. 어디에 끼워져 있는지와 섞는 양(효과음 비율)을 보고 조절할 수 있어요.</p>
+        <div id="fxList" class="fxgrid"><div class="empty">불러오는 중…</div></div>
+      </div>
+      <div id="viewCards" hidden>
+        <div class="muted" style="margin-bottom:8px">악기·마이크 (줄 그어진 것은 뮤트)</div>
+        <div class="legend" id="legend"></div>
+        <div class="grid" id="grid"></div>
+        <p class="muted">막대가 길수록 그 스피커에서 크게 들립니다. 회색 막대는 센드가 꺼져 있어 들리지 않는 것입니다. 카드를 누르면 대화창에 그 모니터 이름이 입력됩니다.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 오른쪽: 대화 -->
+  <section class="panel chat">
+    <div class="head">
+      <div>
+        <h2>무엇을 도와드릴까요?</h2>
+        <div class="sub-title">말로 요청하면 AI가 콘솔을 조절해요</div>
+      </div>
+      <span class="grow"></span>
+      <button id="reset" title="대화 기록 지우기">새 대화</button>
+    </div>
+    <div id="log">
+      <div class="msg ai">원하는 것을 말로 적어 주세요.
+예) "드럼 모니터에 건반 소리 좀 넣어줘"
+     "인도자 모니터에서 베이스 빼줘"
+     "하울링이 나요"</div>
+    </div>
+    <div class="quick">
+      <button data-q="하울링이 나요. 어떻게 해야 해요?">하울링이 나요</button>
+      <button data-q="마이크 소리가 안 나와요">소리가 안 나요</button>
+      <button data-q="모니터에서 자기 소리가 잘 안 들린대요">모니터가 안 들려요</button>
+    </div>
+    <form id="f">
+      <textarea id="t" placeholder="예: 드럼 모니터에 건반 소리 좀 더 크게 해줘"></textarea>
+      <button type="submit" id="send" title="보내기" aria-label="보내기">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+      </button>
+    </form>
+  </section>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const log = $('log'), t = $('t'), sendBtn = $('send');
+const PALETTE = ['#ff6b6b','#5b8cff','#34d399','#fbbf24','#c084fc','#22d3ee','#f472b6','#a3e635','#fb923c','#818cf8','#f87171','#2dd4bf'];
+let colors = {}, names = {};
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const dbText = v => v === '-∞' || v === null || v === undefined ? '-∞' : (v > 0 ? '+' : '') + v;
+// -60 dB 이하는 0%, +10 dB 는 100%
+const pct = v => (v === '-∞' || v == null) ? 0 : Math.max(0, Math.min(100, (v + 60) / 70 * 100));
+
+function rowHtml(s) {
+  const c = colors[s.ch] || '#888';
+  const nm = names[s.ch] || ('채널 ' + s.ch);
+  return `<div class="row ${s.on ? '' : 'off'}" style="--c:${c}">
+    <span class="nm"><span class="sw"></span>${esc(nm)}</span>
+    <span class="bar"><i style="width:${pct(s.level)}%"></i></span>
+    <span class="db">${s.on ? dbText(s.level) : '꺼짐'}</span></div>`;
+}
+
+function cardHtml(title, sub, muted, sends, cls, prompt) {
+  const sorted = [...sends].sort((a, b) => (b.on - a.on) || (pct(b.level) - pct(a.level)));
+  return `<div class="spk ${cls} ${muted ? 'isMuted' : ''}" data-prompt="${esc(prompt)}">
+    <h3>${esc(title)} ${muted ? '<span class="tag">뮤트</span>' : ''}</h3>
+    <div class="meta">${esc(sub)}</div>
+    <div class="rows">${sorted.length ? sorted.map(rowHtml).join('') : '<div class="empty">들어가는 소리가 없습니다</div>'}</div>
+  </div>`;
+}
+
+// ---------- 흐름도: 왼쪽 악기 → 오른쪽 스피커를 선으로 연결 ----------
+let lastData = null;
+const NS = 'http://www.w3.org/2000/svg';
+
+function drawFlow(d) {
+  const box = $('flow');
+  const W = Math.max(box.clientWidth || 700, 360);
+  const narrow = W < 620;
+  const isOn = s => s.on && s.level !== '-∞' && s.level != null;
+  const mains = d.mains || [d.main];
+  const matrices = d.matrices || [];
+
+  // 가운데 열: 메인 출력(MAIN·CENTER·YOUTUBE…) + 모니터 버스
+  const dests = mains.map(m => ({ key: 'm' + (m.main || 1), label: m.name, sub: '메인 출력', mute: m.mute, fader: m.fader, sends: m.sends, prompt: m.name + '에 ', icon: '🔊' }))
+    .concat(d.monitors.map(b => ({ key: 'b' + b.bus, label: b.name, sub: '모니터 · 버스 ' + b.bus, mute: b.mute, fader: b.fader, sends: b.sends, prompt: b.name + '에 ', icon: '🎧' })));
+  // 오른쪽 열: 매트릭스(BABY·CAFE…) — 가운데 열에서 받아서 내보냄
+  const mtxs = matrices.map(x => ({ key: 'x' + x.mtx, label: x.name, mute: x.mute, fader: x.fader, feeds: x.feeds, prompt: x.name + '에 ', icon: '📺' }));
+
+  // 아무 데도 연결되지 않고 이름도 없는 채널은 숨김
+  const active = new Set();
+  dests.forEach(dst => dst.sends.forEach(s => { if (isOn(s)) active.add(s.ch); }));
+  // 이름이 있는 채널은 항상, 이름 없는 채널은 실제로 소리가 나가고 있을 때(뮤트 아님)만 표시
+  const chans = d.channels.filter(c => (c.name && !/^채널 \d+$/.test(names[c.ch])) || (active.has(c.ch) && !c.mute));
+
+  const outs = d.outputs || {};
+  const hasOut = Object.keys(outs).length > 0;
+  const rowH = 28, pad = 16, boxH = hasOut ? 52 : 38;
+  const H = Math.max(chans.length * rowH, dests.length * (boxH + 10), mtxs.length * (boxH + 10)) + pad * 2;
+  // 왼쪽 이름 칸 너비는 가장 긴 이름에 맞춤 (좁은 화면에서는 줄임표)
+  const maxChars = narrow ? 11 : 18;
+  const short = s => s.length > maxChars ? s.slice(0, maxChars - 1) + '…' : s;
+  // 실제 글자 폭을 재서 왼쪽 이름 칸 너비를 정함 (한글은 영문보다 넓음)
+  const ctx = (drawFlow._c ||= document.createElement('canvas')).getContext('2d');
+  ctx.font = '500 13px ' + getComputedStyle(document.body).fontFamily;
+  const srcTag = c => c.src ? c.src + ' ' : '';
+  const longest = Math.max(30, ...chans.map(c => ctx.measureText(srcTag(c) + short(names[c.ch])).width + (c.src ? 8 : 0)));
+  const leftW = Math.min(narrow ? 130 : 210, longest + 26), midW = narrow ? 118 : 160, mtxW = narrow ? 92 : 130, gap = narrow ? 34 : 70;
+  const xL = leftW;
+  const xX = W - mtxW;                                   // 매트릭스 상자 왼쪽
+  const xR = mtxs.length ? xX - gap - midW : W - midW;   // 가운데 상자 왼쪽
+  const chY = i => pad + (i + 0.5) * (H - pad * 2) / chans.length;
+  const dY = j => pad + (j + 0.5) * (H - pad * 2) / dests.length;
+  const xY = k => pad + (k + 0.5) * (H - pad * 2) / mtxs.length;
+  const index = {}; chans.forEach((c, i) => index[c.ch] = i);
+  const dIndex = {}; dests.forEach((dst, j) => dIndex[dst.key] = j);
+  const curve = (x1, y1, x2, y2) => { const mx = (x1 + x2) / 2; return `M${x1},${y1.toFixed(1)} C${mx},${y1.toFixed(1)} ${mx},${y2.toFixed(1)} ${x2},${y2.toFixed(1)}`; };
+
+  let lines = '', nodes = '';
+  const linked = {};
+  dests.forEach((dst, j) => {
+    const y2 = dY(j);
+    dst.sends.forEach(s => {
+      const i = index[s.ch];
+      if (!isOn(s) || i === undefined) return;
+      linked[s.ch] = (linked[s.ch] || 0) + 1;
+      const p = pct(s.level) / 100, dashed = chans[i].mute || dst.mute;
+      lines += `<path class="ln" data-c="${s.ch}" data-d="${dst.key}" fill="none" d="${curve(xL + 6, chY(i), xR, y2)}"
+        stroke="${colors[s.ch]}" stroke-width="${(1.2 + p * 7).toFixed(1)}" stroke-opacity="${dashed ? 0.35 : (0.3 + p * 0.6).toFixed(2)}"
+        ${dashed ? 'stroke-dasharray="6 5"' : ''} stroke-linecap="round">
+        <title>${esc(names[s.ch])} → ${esc(dst.label)} : ${dbText(s.level)} dB${dashed ? ' (뮤트라 지금은 안 들림)' : ''}</title></path>`;
+    });
+  });
+  mtxs.forEach((x, k) => {
+    x.feeds.forEach(f => {
+      const j = dIndex[f.src];
+      if (j === undefined || !isOn(f)) return;
+      const src = dests[j], p = pct(f.level) / 100, dashed = src.mute || x.mute;
+      lines += `<path class="ln mx" data-d="${f.src}" data-x="${x.key}" fill="none" d="${curve(xR + midW - 10, dY(j), xX, xY(k))}"
+        stroke-width="${(1.5 + p * 6).toFixed(1)}" ${dashed ? 'stroke-dasharray="6 5"' : ''} stroke-linecap="round">
+        <title>${esc(src.label)} → ${esc(x.label)} : ${dbText(f.level)} dB${dashed ? ' (뮤트라 지금은 안 들림)' : ''}</title></path>`;
+    });
+  });
+
+  chans.forEach((c, i) => {
+    const y = chY(i), dim = c.mute || !linked[c.ch];
+    nodes += `<g class="nd" data-c="${c.ch}">
+      <circle cx="${xL}" cy="${y}" r="6" fill="${colors[c.ch]}" ${dim ? 'fill-opacity=".35"' : ''}/>
+      <text class="lbl ${c.mute ? 'dim' : ''}" x="${xL - 12}" y="${y + 4.5}" text-anchor="end">${c.src ? `<tspan class="srctag">${esc(c.src)}</tspan><tspan dx="6">` : '<tspan>'}${esc(short(names[c.ch]))}</tspan></text>
+      <title>${c.ch}번 채널 ${esc(names[c.ch])} ← 입력 단자: ${esc(c.srcLong || '알 수 없음')}${c.mute ? ' (뮤트)' : ''} · ${linked[c.ch] || 0}곳으로 나감</title></g>`;
+  });
+  const boxNode = (attr, key, x, y, w, icon, label, sub, muted, prompt) => {
+    const o = outs[key] || [], top = hasOut ? y - 9 : y - 2;
+    const fit = (t, n) => t.length > n ? t.slice(0, n - 1) + '…' : t;
+    const tagged = [...new Set(speakerGroups({ key, label }, d).filter(x => x.tagged).map(x => spkIcon(x.type) + ' ' + x.name))];
+    const outTxt = tagged.length ? tagged.join(' · ') : o.length ? '🔌 ' + o.join(' · ') : (hasOut ? '🔌 출력 단자 없음' : '');
+    return `<g class="nd" data-${attr}="${key}" data-prompt="${esc(prompt)}">
+      <rect class="box ${muted ? 'muted' : ''}" x="${x}" y="${y - boxH / 2}" width="${w}" height="${boxH}" rx="12"/>
+      <text class="lbl" x="${x + 10}" y="${top}">${icon} ${esc(label)}</text>
+      ${muted ? `<text class="tagm" x="${x + 10}" y="${top + 15}">${w < 120 ? '뮤트됨' : '뮤트됨 · 소리 안 남'}</text>` : `<text class="sub" x="${x + 10}" y="${top + 15}">${esc(w < 120 && sub.length > 12 ? sub.slice(0, 11) + '…' : sub)}</text>`}
+      ${outTxt ? `<text class="outtag ${o.length ? '' : 'none'}" x="${x + 10}" y="${top + 30}">${esc(fit(outTxt, Math.floor(w / 6.4)))}</text>` : ''}
+      <title>${esc(label)}${muted ? ' (뮤트)' : ''}${o.length ? '\n출력 단자: ' + esc(o.join(', ')) : ''}${tagged.length ? '\n스피커: ' + esc(tagged.join(', ')) : ''}</title></g>`;
+  };
+  dests.forEach((dst, j) => {
+    const count = dst.sends.filter(isOn).length;
+    nodes += boxNode('d', dst.key, xR, dY(j), midW - 10, dst.icon, dst.label, dst.sub + ' · ' + count + '개', dst.mute, dst.prompt);
+  });
+  mtxs.forEach((x, k) => {
+    const from = x.feeds.filter(isOn).map(f => dests[dIndex[f.src]]?.label).filter(Boolean).join(', ') || '받는 소리 없음';
+    nodes += boxNode('x', x.key, xX, xY(k), mtxW - 6, x.icon, x.label, '← ' + from, x.mute, x.prompt);
+  });
+
+  // ✨ 이펙트 알약
+  let fxg = '';
+  ctx.font = '600 10.5px ' + getComputedStyle(document.body).fontFamily;
+  const pill = (x, y, u, anchorRight) => {
+    const label = '✨ ' + u.model, w = Math.ceil(ctx.measureText(label).width) + 14, h = 17;
+    const px = anchorRight ? x - w : x;
+    return { w, svg: `<g class="fxpill ${u.on ? '' : 'off'}" data-fx="${u.slot}">
+      <rect x="${px}" y="${y - h / 2}" width="${w}" height="${h}" rx="8.5"/>
+      <text x="${px + w / 2}" y="${y + 3.6}" text-anchor="middle">${esc(label)}</text>
+      <title>이펙트 ${u.slot}번 ${esc(u.model)} · ${u.pos === 'preins' ? '페이더 앞' : '페이더 뒤'}${u.on ? '' : ' (꺼짐)'} — 누르면 이펙트 탭에서 열려요</title></g>` };
+  };
+  chans.forEach((c, i) => {
+    let x = xL + 12;
+    (fxUses['c' + c.ch] || []).forEach(u => { const p = pill(x, chY(i), u, false); fxg += p.svg; x += p.w + 4; });
+  });
+  dests.forEach((dst, j) => {
+    let x = xR - 4;
+    (fxUses[dst.key] || []).forEach(u => { const p = pill(x, dY(j), u, true); fxg += p.svg; x -= p.w + 4; });
+  });
+  mtxs.forEach((mx, k) => {
+    let x = xX - 4;
+    (fxUses[mx.key] || []).forEach(u => { const p = pill(x, xY(k), u, true); fxg += p.svg; x -= p.w + 4; });
+  });
+  box.innerHTML = `<svg xmlns="${NS}" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="악기에서 스피커로 가는 소리 흐름도">
+    <g>${lines}</g><g>${nodes}</g><g>${fxg}</g></svg>`;
+  box.querySelectorAll('.fxpill').forEach(el => el.addEventListener('click', ev => {
+    ev.stopPropagation();
+    setView('fx');
+    const slot = el.dataset.fx;
+    setTimeout(() => { const card = [...document.querySelectorAll('.fxcard')].find(c => c.querySelector('.slot')?.textContent === slot);
+      if (card) { card.scrollIntoView({ behavior: 'smooth', block: 'center' }); card.classList.add('flash'); setTimeout(() => card.classList.remove('flash'), 1600); } }, 600);
+  }));
+  $('flowhead3').hidden = !mtxs.length;
+  const other = d.otherOutputs || [];
+  $('otherOut').innerHTML = other.length ? `<div class="otherout"><b>🔌 그 밖의 출력 연결</b> <span class="muted">(녹음·USB·직접 연결 등)</span><ul>${other.map(t => `<li>${esc(t)}</li>`).join('')}</ul></div>` : '';
+
+  const svg = box.querySelector('svg');
+  const focus = (attr, val) => {
+    svg.querySelectorAll('.on').forEach(e => e.classList.remove('on'));
+    svg.classList.add('focus');
+    // 가운데 상자를 고르면 들어오는 선과 나가는 선을 모두 강조
+    svg.querySelectorAll('.ln').forEach(l => {
+      if (l.dataset[attr] !== val) return;
+      l.classList.add('on');
+      ['c', 'd', 'x'].forEach(a => l.dataset[a] && svg.querySelector(`.nd[data-${a}="${l.dataset[a]}"]`)?.classList.add('on'));
+    });
+    svg.querySelector(`.nd[data-${attr}="${val}"]`)?.classList.add('on');
+  };
+  const clear = () => { svg.classList.remove('focus'); svg.querySelectorAll('.on').forEach(e => e.classList.remove('on')); };
+  const restore = () => { clear(); if (selected) focus(selected.attr, selected.val); };
+  svg.querySelectorAll('.nd').forEach(n => {
+    const attr = n.dataset.c ? 'c' : n.dataset.d ? 'd' : 'x';
+    n.addEventListener('mouseenter', () => focus(attr, n.dataset[attr]));
+    n.addEventListener('mouseleave', restore);
+    n.addEventListener('click', () => {
+      const same = selected && selected.attr === attr && selected.val === n.dataset[attr];
+      selected = same ? null : { attr, val: n.dataset[attr] };
+      restore();
+      showInfo(dests, mtxs);
+    });
+  });
+  restore();
+  showInfo(dests, mtxs);
+}
+
+// 선택한 스피커/악기의 연결을 아래에 크게 보여줌
+let selected = null;
+function showInfo(dests, mtxs) {
+  const info = $('flowInfo');
+  if (!selected) {
+    info.innerHTML = '<div class="hintbox">👆 <b>악기</b>나 <b>스피커·모니터</b>를 누르면, 연결된 소리를 보여 주고 <b>직접 조절</b>할 수 있습니다. 악기를 누르면 게인·EQ·컴프 같은 <b>채널 설정</b>도 나와요.</div>';
+    updateDetail();
+    return;
+  }
+  const chOrder = {}; (lastData ? lastData.channels : []).forEach((c, i) => chOrder[c.ch] = i);
+  const visible = s => s.on || (s.level !== '-∞' && s.level != null);
+  let title, rows = [], prompt, note = '', routeKey = null, routeLabel = '', master = null;
+  if (selected.attr === 'd') {
+    const dst = dests.find(x => x.key === selected.val);
+    if (!dst) { selected = null; return showInfo(dests, mtxs); }
+    const isMain = dst.key[0] === 'm', num = Number(dst.key.slice(1));
+    title = `${dst.icon} ${dst.label}에 들어가는 소리${dst.mute ? ' (지금 뮤트됨)' : ''}`;
+    rows = dst.sends.filter(s => isMain ? true : visible(s) || showAll)
+      .filter(s => showAll || s.on || visible(s))
+      .sort((a, b) => chOrder[a.ch] - chOrder[b.ch])
+      .map(s => ({ c: colors[s.ch], name: names[s.ch] || ('채널 ' + s.ch), level: s.level, on: s.on,
+                   t: isMain ? { type: 'main', ch: s.ch, main: num } : { type: 'bus', ch: s.ch, bus: num } }));
+    if (isMain && !showAll) rows = rows.filter(r => r.on);
+    const outs = mtxs.filter(x => x.feeds.some(f => f.src === dst.key && f.on)).map(x => x.label);
+    if (outs.length) note += `➡ 이 소리는 ${outs.join(', ')}(으)로도 나갑니다. `;
+    routeKey = dst.key; routeLabel = dst.label;
+    master = { label: dst.label, level: dst.fader, on: !dst.mute, t: { type: 'master', kind: isMain ? 'main' : 'bus', index: num } };
+    if (isMain && num === 1) note += '※ MAIN 슬라이더는 채널 페이더를 움직입니다. 채널 페이더를 따라가는 CENTER·YOUTUBE 등도 같이 바뀝니다.';
+    prompt = dst.prompt;
+  } else if (selected.attr === 'x') {
+    const x = mtxs.find(m => m.key === selected.val);
+    if (!x) { selected = null; return showInfo(dests, mtxs); }
+    const num = Number(x.key.slice(1));
+    title = `${x.icon} ${x.label}에 들어가는 소리${x.mute ? ' (지금 뮤트됨)' : ''}`;
+    rows = x.feeds.filter(f => showAll || f.on || visible(f)).map(f => ({ c: 'var(--accent)', name: (dests.find(dd => dd.key === f.src) || {}).label || f.src,
+      level: f.level, on: f.on, t: { type: 'mtx', src: f.src, mtx: num } }));
+    note = `${x.label}은(는) 위 출력의 소리를 받아 내보냅니다.`;
+    routeKey = x.key; routeLabel = x.label;
+    master = { label: x.label, level: x.fader, on: !x.mute, t: { type: 'master', kind: 'mtx', index: num } };
+    prompt = x.prompt;
+  } else {
+    const ch = Number(selected.val);
+    title = `🎤 ${names[ch]} 소리가 나가는 곳`;
+    rows = dests.map(dst => ({ dst, s: dst.sends.find(s => s.ch === ch) }))
+      .filter(x => x.s && (showAll || x.s.on || (x.dst.key[0] === 'b' && visible(x.s))))
+      .map(x => ({ c: colors[ch], name: x.dst.icon + ' ' + x.dst.label, level: x.s.level, on: x.s.on,
+                   t: x.dst.key[0] === 'm' ? { type: 'main', ch, main: Number(x.dst.key.slice(1)) } : { type: 'bus', ch, bus: Number(x.dst.key.slice(1)) } }));
+    prompt = names[ch] + ' 소리를 ';
+  }
+
+  const toSlider = v => (v === '-∞' || v == null) ? SL_MIN : Math.max(SL_MIN, Math.min(10, Number(v)));
+  info.innerHTML = `<div class="infobox">
+    <div class="infohead"><b>${esc(title)}</b><span class="grow"></span>
+      <label class="muted"><input type="checkbox" id="showAll" ${showAll ? 'checked' : ''}> 꺼진 것도 보기</label>
+      <button id="askBtn">AI에게 요청</button><button id="closeSel">전체 보기</button></div>
+    ${master ? `<div class="mastertitle">전체 볼륨 <span class="muted">— ‘${esc(master.label)}’로 나가는 소리 전체 (콘솔의 ${esc(master.label)} 페이더)</span></div>
+    <div class="crow master ${master.on ? '' : 'off'}" style="--c:#fbbf24" data-t='${esc(JSON.stringify(master.t))}'>
+      <span class="nm"><span class="sw"></span>🔊 ${esc(master.label)} 전체</span>
+      <button class="step" data-step="-1" title="1 dB 줄이기" aria-label="${esc(master.label)} 전체 1 dB 줄이기">−</button>
+      <input type="range" min="${SL_MIN}" max="10" step="0.5" value="${toSlider(master.level)}" aria-label="${esc(master.label)} 전체 볼륨">
+      <button class="step" data-step="1" title="1 dB 키우기" aria-label="${esc(master.label)} 전체 1 dB 키우기">+</button>
+      <span class="db">${dbText(master.level)}</span>
+      <button class="tog ${master.on ? 'is-on' : ''}" title="뮤트 켜기/끄기">${master.on ? '켜짐' : '뮤트'}</button></div>
+    <div class="mastertitle" style="margin-top:12px">악기별 크기</div>` : ''}
+    <div class="ctlhelp muted">마우스로 끌거나, 슬라이더를 누른 뒤 키보드 ←→(0.5 dB)·PageUp/PageDown(5 dB)으로 조절하세요. 오른쪽 버튼으로 켜고 끕니다.</div>
+    ${rows.length ? rows.map(r => `<div class="crow ${r.on ? '' : 'off'}" style="--c:${r.c}" data-t='${esc(JSON.stringify(r.t))}'>
+      <span class="nm"><span class="sw"></span>${esc(r.name)}</span>
+      <button class="step" data-step="-1" title="1 dB 줄이기" aria-label="${esc(r.name)} 1 dB 줄이기">−</button>
+      <input type="range" min="${SL_MIN}" max="10" step="0.5" value="${toSlider(r.level)}" aria-label="${esc(r.name)} 크기">
+      <button class="step" data-step="1" title="1 dB 키우기" aria-label="${esc(r.name)} 1 dB 키우기">+</button>
+      <span class="db">${dbText(r.level)}</span>
+      <button class="tog ${r.on ? 'is-on' : ''}" title="켜기/끄기">${r.on ? '켜짐' : '꺼짐'}</button></div>`).join('')
+      : '<div class="empty">연결된 소리가 없습니다. "꺼진 것도 보기"를 누르면 켤 수 있는 항목이 나옵니다.</div>'}
+    <div class="ctlmsg" id="ctlMsg"></div>
+    ${routeKey ? `<div class="routebox"><span>🔌 <b>출력 단자</b> ${esc(((lastData && lastData.outputs) || {})[routeKey]?.join(' · ') || '연결된 출력 단자 없음')}</span>
+      <span class="grow"></span><button id="routeOut">출력 단자 바꾸기</button></div>` : ''}
+    ${note ? `<div class="muted" style="margin-top:6px">${esc(note)}</div>` : ''}</div>`;
+  $('closeSel').onclick = () => { selected = null; lastData && drawFlow(lastData); };
+  if (routeKey) $('routeOut').onclick = () => openOutputDialog(routeKey, routeLabel);
+  $('showAll').onchange = e => { showAll = e.target.checked; showInfo(dests, mtxs); };
+  $('askBtn').onclick = () => { if (t && document.body.contains(t)) { t.value = prompt; t.focus(); } };
+  if (!document.body.contains(t)) $('askBtn').remove();
+  info.querySelectorAll('.crow').forEach(bindRow);
+  updateDetail();
+  if (refocusKey) {
+    const row = [...info.querySelectorAll('.crow')].find(r => r.dataset.t === refocusKey);
+    if (row) row.querySelector('input[type=range]').focus();
+    refocusKey = null;
+  }
+}
+
+// ---------- 직접 조절 (슬라이더 / 버튼) ----------
+const SL_MIN = -60;               // 슬라이더 맨 아래 = -∞ (소리 없음)
+let showAll = false, refocusKey = null, refreshTimer = null, interacting = false;
+const sliderToDb = v => Number(v) <= SL_MIN ? -144 : Number(v);
+const showDb = v => Number(v) <= SL_MIN ? '-∞' : dbText(Number(v));
+
+let lastControlAt = 0;
+async function sendControl(target, body, confirmed = false) {
+  lastControlAt = Date.now();
+  try {
+    const r = await fetch('/api/set', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target, ...body, confirmed }) });
+    const d = await r.json();
+    if (d.needConfirm && !confirmed) {
+      if (confirm(d.error + '\n\n정말 바꿀까요?')) return sendControl(target, body, true);
+      return false;
+    }
+    if (d.error) { const m = $('ctlMsg'); if (m) m.textContent = '⚠ ' + d.error; return false; }
+    return true;
+  } catch (e) {
+    const m = $('ctlMsg'); if (m) m.textContent = '⚠ 프로그램과 연결이 끊겼습니다.';
+    return false;
+  }
+}
+
+// 조작이 끝나고 잠시 뒤 콘솔 값을 다시 읽어 그림을 갱신
+function scheduleRefresh(row, delay = 900) {
+  refocusKey = row && row.contains(document.activeElement) ? row.dataset.t : refocusKey;
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => { if (!interacting) loadRouting(); else scheduleRefresh(null, delay); }, delay);
+}
+
+function bindRow(row) {
+  const target = JSON.parse(row.dataset.t);
+  const range = row.querySelector('input[type=range]');
+  const label = row.querySelector('.db');
+  const paint = () => range.style.setProperty('--p', ((Number(range.value) - SL_MIN) / (10 - SL_MIN) * 100).toFixed(1) + '%');
+  paint();
+  let lastSent = 0, pending = null;
+  const sendLevel = async (v) => {
+    const ok = await sendControl(target, { level: sliderToDb(v) });
+    if (!ok) scheduleRefresh(row, 100);   // 실패/취소하면 원래 값으로 되돌림
+  };
+  range.addEventListener('pointerdown', () => { interacting = true; });
+  range.addEventListener('pointerup', () => { interacting = false; });
+  range.addEventListener('input', () => {
+    label.textContent = showDb(range.value); paint();
+    // 끄는 동안에는 0.15초마다 한 번씩만 보냄
+    const now = Date.now();
+    clearTimeout(pending);
+    if (now - lastSent > 150) { lastSent = now; sendLevel(range.value); }
+    else pending = setTimeout(() => { lastSent = Date.now(); sendLevel(range.value); }, 150);
+  });
+  range.addEventListener('change', () => { interacting = false; scheduleRefresh(row); });
+  row.querySelectorAll('.step').forEach(b => b.addEventListener('click', async () => {
+    const cur = Number(range.value) <= SL_MIN ? SL_MIN : Number(range.value);
+    const v = Math.max(SL_MIN, Math.min(10, cur + Number(b.dataset.step)));
+    range.value = v; label.textContent = showDb(v); paint();
+    await sendLevel(v);
+    scheduleRefresh(row, 600);
+  }));
+  row.querySelector('.tog').addEventListener('click', async e => {
+    const btn = e.currentTarget, turnOn = !btn.classList.contains('is-on');
+    if (await sendControl(target, { on: turnOn })) {
+      btn.classList.toggle('is-on', turnOn); btn.textContent = turnOn ? '켜짐' : (row.classList.contains('master') ? '뮤트' : '꺼짐');
+      row.classList.toggle('off', !turnOn);
+    }
+    scheduleRefresh(row, 400);
+  });
+}
+
+// 글꼴(Pretendard)이 늦게 받아지면 글자 폭이 바뀌므로 한 번 다시 그림
+if (document.fonts) document.fonts.ready.then(() => { if (lastData) drawFlow(lastData); });
+let resizeTimer;
+window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (lastData) { drawFlow(lastData); routeTabKey = ''; renderRouteTab(); } }, 150); });
+
+function setView(v) {
+  $('viewFlow').hidden = v !== 'flow';
+  $('viewCards').hidden = v !== 'cards';
+  $('viewFx').hidden = v !== 'fx';
+  $('viewRoute').hidden = v !== 'route';
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('sel', b.dataset.view === v));
+  try { localStorage.setItem('wingView', v); } catch (e) {}
+  if (v === 'flow' && lastData) drawFlow(lastData);
+  if (v === 'fx') { fxKey = ''; loadEffects(true); }
+  if (v === 'route') { routeTabKey = ''; renderRouteTab(); routeState(); }
+}
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
+try { setView(localStorage.getItem('wingView') || 'flow'); } catch (e) { setView('flow'); }
+
+let lastJson = '', connLost = false;
+// 화면 갱신이 실패하면 상태 점검을 바로 다시 함 (표시는 checkHealth가 담당)
+function setConn() { checkHealth(); }
+
+// ---------- 연결·통신 상태 표시와 문제 알림 ----------
+let lastConsoleState = null, goodUntil = 0;
+function pill(el, state, label, detail) {
+  const dotCls = state === 'ok' ? 'on' : state;
+  el.className = 'pill st-' + state;
+  el.innerHTML = `<span class="dot ${dotCls}"></span><b>${esc(label)}</b> ${esc(detail)}`;
+}
+function renderAlerts(list) {
+  const icon = { err: '!', warn: '!', good: '✓' };
+  const key = JSON.stringify(list);
+  if (key === renderAlerts.last) return;   // 내용이 같으면 다시 그리지 않음 (깜빡임 방지)
+  renderAlerts.last = key;
+  $('alerts').innerHTML = list.map((a, i) => a.level === 'hidden'
+    ? `<div class="hiddenalerts">숨긴 알림 ${a.count}개 <button class="mini" data-restore="1">다시 보기</button></div>`
+    : `<div class="alert ${a.level}" role="${a.level === 'err' ? 'alert' : 'status'}">
+      <span class="ic">${icon[a.level] || '!'}</span>
+      <div class="grow"><div class="tx">${esc(a.text)}</div>${a.hint ? `<div class="hint">${esc(a.hint)}</div>` : ''}</div>
+      ${a.canHide ? `<button class="mini hidebtn" data-hide="${i}" title="이 알림 숨기기 (상황이 바뀌면 다시 알려줘요)">알겠어요</button>` : ''}</div>`).join('');
+  $('alerts').querySelectorAll('[data-hide]').forEach(b => b.onclick = () => {
+    dismissed.push(list[Number(b.dataset.hide)].text); saveDismissed(); renderAlerts.last = ''; checkHealth();
+  });
+  const rs = $('alerts').querySelector('[data-restore]');
+  if (rs) rs.onclick = () => { dismissed = []; saveDismissed(); renderAlerts.last = ''; checkHealth(); };
+}
+// 숨긴 알림: 그 상황이 끝나면(경고가 사라지면) 자동으로 잊어서, 다시 생기면 다시 알려 줌
+let dismissed = [];
+try { dismissed = JSON.parse(localStorage.getItem('wingDismissed') || '[]'); } catch (e) { dismissed = []; }
+function saveDismissed() { try { localStorage.setItem('wingDismissed', JSON.stringify(dismissed)); } catch (e) {} }
+async function checkHealth() {
+  let h;
+  try {
+    const r = await fetch('/api/health', { cache: 'no-store' });
+    h = await r.json();
+  } catch (e) {
+    // 프로그램 자체가 꺼짐 (검은 창을 닫았거나 PC 문제)
+    pill($('status'), 'down', '콘솔', '알 수 없음');
+    pill($('aiPill'), 'down', 'AI', '알 수 없음');
+    renderAlerts([{ level: 'err', text: 'AI 콘솔메이트 프로그램이 꺼져 있습니다.', hint: '바탕화면의 "AI 콘솔메이트" 아이콘을 다시 눌러 주세요.' }]);
+    document.title = '⚠ AI 콘솔메이트';
+    lastConsoleState = 'down';
+    return;
+  }
+  const c = h.console;
+  const detail = c.state === 'down' ? (c.message || '응답 없음')
+    : `연결됨 · ${c.latency_ms} ms` + (c.state === 'slow' ? ' (느림)' : '');
+  pill($('status'), c.state, '콘솔', detail);
+  $('status').title = `콘솔(${c.model || 'WING'}) ${c.ip || ''} · ${c.message || ''}`;
+  if (c.family && document.body.dataset.fam !== c.family) {
+    document.body.dataset.fam = c.family;
+    consoleModel = c.model || 'WING';
+    setBrand(brandName);
+  }
+  pill($('aiPill'), h.ai.state, 'AI', h.ai.message);
+
+  const current = h.warnings.map(w => w.text);
+  const before = dismissed.length;
+  dismissed = dismissed.filter(t => current.includes(t));          // 끝난 상황은 잊음
+  if (dismissed.length !== before) saveDismissed();
+  // 통신 끊김 경고는 숨길 수 없음 (안전)
+  const list = h.warnings.filter(w => !dismissed.includes(w.text))
+    .map(w => ({ ...w, canHide: !w.text.startsWith('콘솔과 통신이 끊겼') }));
+  if (dismissed.length) list.push({ level: 'hidden', count: dismissed.length });
+  // 끊겼다가 다시 연결되면 잠깐 초록 알림
+  if (lastConsoleState === 'down' && c.state !== 'down') { goodUntil = Date.now() + 5000; loadRouting(); }
+  if (Date.now() < goodUntil) list.unshift({ level: 'good', text: '콘솔과 다시 연결되었습니다.', hint: '화면의 값도 최신으로 다시 불러왔습니다.' });
+  renderAlerts(list);
+  lastConsoleState = c.state;
+  document.title = (list.some(a => a.level === 'err') ? '⚠ ' : '') + 'AI 콘솔메이트';
+}
+checkHealth();
+setInterval(() => { if (!document.hidden) checkHealth(); }, 3000);
+async function loadRouting(auto = false) {
+  $('refresh').disabled = true;
+  try {
+    const r = await fetch('/api/routing');
+    const text = await r.text();
+    const d = JSON.parse(text);
+    if (d.error) {
+      connLost = true;
+      setConn(false, 'WING 응답 없음 · 콘솔 전원과 네트워크를 확인하세요');
+      if (!auto) $('grid').innerHTML = `<div class="empty">${esc(d.error)}</div>`;
+      return;
+    }
+    if (connLost) { connLost = false; checkHealth(); }
+    $('updated').textContent = new Date().toLocaleTimeString('ko-KR') + ' 기준';
+    // 바뀐 것이 없으면 다시 그리지 않음 (깜빡임 방지)
+    if (auto && text === lastJson) return;
+    lastJson = text;
+    colors = {}; names = {};
+    d.channels.forEach((c, i) => { colors[c.ch] = PALETTE[i % PALETTE.length]; names[c.ch] = c.name || ('채널 ' + c.ch); });
+    $('legend').innerHTML = d.channels.map(c =>
+      `<span class="chip ${c.mute ? 'dim' : ''}" style="--c:${colors[c.ch]}"><span class="sw"></span>${c.ch}. ${esc(names[c.ch])}</span>`).join('');
+    let html = d.monitors.map(b => cardHtml('🎧 ' + b.name, '버스 ' + b.bus + ' · 모니터 볼륨 ' + dbText(b.fader) + ' dB', b.mute, b.sends.filter(s => s.on || s.level !== '-∞'), '', b.name + '에 ')).join('');
+    html += (d.mains || [d.main]).map(m => cardHtml('🔊 ' + m.name, '메인 출력 ' + (m.main || 1) + ' · 페이더 ' + dbText(m.fader) + ' dB', m.mute, m.sends.filter(s => s.on), 'main', m.name + '에 ')).join('');
+    $('grid').innerHTML = html;
+    lastData = d;
+    renderRouteTab();
+    // 키보드로 조절 중이던 슬라이더는 다시 그린 뒤에도 선택 상태 유지
+    const focusedRow = document.activeElement && document.activeElement.closest && document.activeElement.closest('.crow');
+    if (focusedRow) refocusKey = focusedRow.dataset.t;
+    drawFlow(d);
+    document.querySelectorAll('.spk').forEach(el => el.addEventListener('click', () => { t.value = el.dataset.prompt; t.focus(); }));
+  } catch (e) {
+    connLost = true;
+    setConn(false, '프로그램과 연결이 끊겼습니다. 실행.bat 으로 다시 켜 주세요');
+  } finally {
+    $('refresh').disabled = false;
+  }
+}
+
+function add(cls, text) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + cls; d.textContent = text;
+  log.appendChild(d); log.scrollTop = log.scrollHeight;
+  return d;
+}
+
+const NAMES = { list_strips:'목록 확인', get_monitor_mix:'모니터 믹스 확인', set_send:'모니터 센드 변경',
+  set_fader:'페이더 설정', adjust_fader:'페이더 조절', set_mute:'뮤트 변경', set_low_cut:'로우컷 설정' };
+const CHANGES = ['set_send','set_main_send','set_fader','adjust_fader','set_mute','set_low_cut'];
+NAMES.set_main_send = '메인 출력 센드 변경';
+NAMES.get_main_mix = '메인 출력 확인';
+
+function addActions(actions) {
+  if (!actions || !actions.length) return;
+  const d = document.createElement('div');
+  d.className = 'actions';
+  for (const a of actions) {
+    const line = document.createElement('div');
+    line.textContent = (a.error ? '⚠ ' : '✓ ') + (NAMES[a.tool] || a.tool) + ' ' + JSON.stringify(a.input);
+    if (a.error) line.className = 'bad';
+    d.appendChild(line);
+  }
+  log.appendChild(d);
+}
+
+async function ask(text) {
+  if (!text.trim()) return;
+  add('me', text); t.value = ''; sendBtn.disabled = true;
+  const wait = add('ai', '생각 중…');
+  try {
+    const r = await fetch('/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message:text}) });
+    const data = await r.json();
+    wait.remove();
+    addActions(data.actions);
+    add('ai', data.reply || '(응답 없음)');
+    if ((data.actions || []).some(a => CHANGES.includes(a.tool) && !a.error)) loadRouting();
+  } catch (e) {
+    wait.textContent = '프로그램과 연결이 끊겼습니다. 창을 닫았다면 다시 실행해 주세요.';
+  } finally {
+    sendBtn.disabled = false; t.focus();
+  }
+}
+
+$('f').addEventListener('submit', e => { e.preventDefault(); ask(t.value); });
+t.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); ask(t.value); } });
+document.querySelectorAll('.quick button').forEach(b => b.addEventListener('click', () => ask(b.dataset.q)));
+$('refresh').addEventListener('click', loadRouting);
+$('reset').addEventListener('click', async () => {
+  await fetch('/api/reset', {method:'POST'});
+  log.innerHTML = ''; add('ai', '새 대화를 시작합니다.');
+});
+
+const GUIDE = `<div class="head"><h2>대화 기능이 꺼져 있습니다</h2></div>
+  <div class="guide">
+    <p>지금은 <b>보기 전용</b>입니다. 말로 요청하는 대화창을 쓰려면 Claude API 키가 필요합니다.</p>
+    <p><button class="primary" id="guideKey" type="button">🔑 API 키 넣기</button></p>
+    <p class="muted">흐름도, 직접 조절, 예배 순서 버튼은 키 없이도 쓸 수 있어요.</p>
+  </div>`;
+
+// ================= 채널 설정 패널 (게인·+48V·필터·EQ·컴프·인서트) =================
+// 슬라이더는 0~1000 칸을 쓰고, 실제 값으로 바꿀 때 직선 또는 로그(주파수) 눈금을 씀
+const toVal = (pos, mn, mx, log) => log ? mn * Math.pow(mx / mn, pos / 1000) : mn + (mx - mn) * pos / 1000;
+const toPos = (v, mn, mx, log) => Math.round(Math.max(0, Math.min(1000, log ? Math.log(v / mn) / Math.log(mx / mn) * 1000 : (v - mn) / (mx - mn) * 1000)));
+const fmtHz = v => v >= 1000 ? (v / 1000).toFixed(v >= 10000 ? 1 : 2).replace(/\.?0+$/, '') + ' kHz' : Math.round(v) + ' Hz';
+function fmtParam(v, unit) {
+  if (v == null) return '–';
+  if (unit === 'Hz') return fmtHz(v);
+  if (unit === 'dB') return (v > 0 ? '+' : '') + Number(v).toFixed(1) + ' dB';
+  if (unit === ':1') return Number(v).toFixed(1) + ' : 1';
+  if (unit === '%') return Math.round(v) + '%';
+  return Number(v).toFixed(1) + (unit ? ' ' + unit : '');
+}
+function prow(label, key, val, mn, mx, unit, opt = {}) {
+  if (val == null) return '';
+  return `<div class="prow ${opt.disabled ? 'disabled' : ''}" data-k="${key}" data-min="${mn}" data-max="${mx}" data-log="${opt.log ? 1 : 0}" data-unit="${unit}" style="--c:${opt.color || 'var(--accent)'}">
+    <span class="nm" title="${esc(label)}">${esc(label)}</span>
+    <input type="range" min="0" max="1000" step="5" value="${toPos(val, mn, mx, opt.log)}" aria-label="${esc(label)}">
+    <span class="db">${fmtParam(val, unit)}</span></div>`;
+}
+function ptog(key, on, extra = '') {
+  return `<button class="ptog ${on ? 'is-on' : ''} ${extra}" data-k="${key}" data-on="${on ? 1 : 0}">${on ? '켜짐' : '꺼짐'}</button>`;
+}
+function renderDetail(d) {
+  const inp = d['입력'], flt = d['필터'], eq = d['EQ'], dyn = d['컴프'], gate = d['게이트'], ins = d['인서트'];
+  const col = colors[d['채널']] || 'var(--accent)';
+  const bandCol = { l: '#ff6b6b', '1': '#fbbf24', '2': '#34d399', '3': '#22d3ee', '4': '#5b8cff', h: '#c084fc' };
+  const eqRows = (eq['밴드'] || []).map(b => {
+    const k = b['밴드'];
+    return prow(`${b['이름']} 게인`, `eq_${k}g`, b['게인_dB'], -15, 15, 'dB', { color: bandCol[k], disabled: !eq['켜짐'] })
+         + prow(`${b['이름']} 주파수`, `eq_${k}f`, b['주파수_Hz'], 20, 20000, 'Hz', { log: true, color: bandCol[k], disabled: !eq['켜짐'] });
+  }).join('');
+  const insRow = (k, label) => ins[k] ? `<div class="prow"><span class="nm">${label}</span><span class="muted">${esc(ins[k]['이펙트'] === 'NONE' ? '비어 있음' : ins[k]['이펙트'])}</span>
+      <span style="text-align:right">${ins[k]['이펙트'] !== 'NONE' ? ptog(k + '_on', ins[k]['켜짐']) : ''}</span></div>` : '';
+  return `<div class="detail">
+    <div class="detail-head"><b>🎛 ${esc(d['이름'] || ('채널 ' + d['채널']))} 채널 설정</b>
+      <span class="muted">콘솔 HOME 화면과 같은 내용 · 바꾸면 바로 콘솔에 적용돼요</span></div>
+    <div class="dgrid">
+      <div class="dcard"><h4>입력 <span class="meta">${inp ? esc(inp['연결']) + (inp['소스이름'] ? ' · ' + esc(inp['소스이름']) : '') : '연결 정보 없음'}</span><span class="grow"></span><button class="mini" data-act="chin">입력 단자 바꾸기</button></h4>
+        ${inp ? prow('게인', 'gain', inp['게인_dB'], -3, 60, 'dB', { color: col }) : ''}
+        ${inp && inp['팬텀_48V'] != null ? `<div class="prow"><span class="nm">+48V 팬텀</span><span class="muted">콘덴서 마이크·DI용</span><span style="text-align:right">${ptog('phantom', inp['팬텀_48V'], 'warn')}</span></div>` : ''}
+        ${prow('TRIM', 'trim', d['TRIM_dB'], -18, 18, 'dB', { color: col })}
+        <div class="prow"><span class="nm">위상 반전</span><span></span><span style="text-align:right">${ptog('invert', d['위상반전'])}</span></div>
+      </div>
+      <div class="dcard"><h4>필터 <span class="meta">웅웅거림·잡음 줄이기</span></h4>
+        <div class="prow"><span class="nm">로우컷</span><span class="muted">낮은 소리 자르기</span><span style="text-align:right">${ptog('lc', flt['로우컷'])}</span></div>
+        ${prow('로우컷 주파수', 'lcf', flt['로우컷_Hz'], 20, 2000, 'Hz', { log: true, disabled: !flt['로우컷'] })}
+        <div class="prow"><span class="nm">하이컷</span><span class="muted">높은 소리 자르기</span><span style="text-align:right">${ptog('hc', flt['하이컷'])}</span></div>
+        ${prow('하이컷 주파수', 'hcf', flt['하이컷_Hz'], 50, 20000, 'Hz', { log: true, disabled: !flt['하이컷'] })}
+      </div>
+      <div class="dcard" style="grid-row: span 2"><h4>EQ <span class="meta">${esc(eq['종류'] || '')} · 소리 색깔</span><span class="grow"></span>${ptog('eq_on', eq['켜짐'])}</h4>
+        ${eqRows || '<div class="muted">이 EQ 종류는 화면에서 세부 조절을 지원하지 않아요.</div>'}
+      </div>
+      <div class="dcard"><h4>컴프 <span class="meta">${esc(dyn['종류'] || '')} · 크기 고르게</span><span class="grow"></span>${ptog('dyn_on', dyn['켜짐'])}</h4>
+        ${dyn['문턱_dB'] != null ? prow('문턱', 'dyn_thr', dyn['문턱_dB'], -60, 0, 'dB', { disabled: !dyn['켜짐'] })
+          + prow('비율', 'dyn_ratio', dyn['비율'], 1.1, 20, ':1', { log: true, disabled: !dyn['켜짐'] })
+          + prow('보충 게인', 'dyn_gain', dyn['보충게인_dB'], -6, 12, 'dB', { disabled: !dyn['켜짐'] })
+          : '<div class="muted">이 종류는 켜기/끄기만 할 수 있어요.</div>'}
+      </div>
+      <div class="dcard"><h4>게이트 슬롯 <span class="meta">${esc(gate['종류'] || '')}</span><span class="grow"></span>${ptog('gate_on', gate['켜짐'])}</h4>
+        ${insRow('preins', '인서트 (페이더 앞)')}${insRow('postins', '인서트 (페이더 뒤)')}
+      </div>
+    </div></div>`;
+}
+let detailCh = null, detailKey = '';
+async function updateDetail(force = false) {
+  const box = $('flowDetail');
+  if (!selected || selected.attr !== 'c') { if (box.innerHTML) box.innerHTML = ''; detailCh = null; detailKey = ''; return; }
+  const ch = Number(selected.val);
+  if (!force && detailCh === ch && (interacting || Date.now() - lastControlAt < 2000)) return;
+  let d;
+  try { d = await (await fetch('/api/channel?ch=' + ch, { cache: 'no-store' })).json(); } catch (e) { return; }
+  if (!selected || Number(selected.val) !== ch) return;
+  if (d.error) { box.innerHTML = `<div class="hintbox">${esc(d.error)}</div>`; return; }
+  const key = JSON.stringify(d);
+  if (key === detailKey && detailCh === ch) return;
+  const focusK = document.activeElement && document.activeElement.closest && document.activeElement.closest('#flowDetail [data-k]');
+  const fk = focusK ? (focusK.dataset.k || focusK.closest('[data-k]').dataset.k) : null;
+  detailKey = key; detailCh = ch;
+  box.innerHTML = renderDetail(d);
+  box.querySelectorAll('.prow[data-k]').forEach(r => bindParam(r, ch));
+  box.querySelectorAll('.ptog').forEach(b => bindToggle(b, ch));
+  const chin = box.querySelector('[data-act=chin]');
+  if (chin) chin.onclick = () => openInputDialog(ch, d);
+  if (fk) { const el = box.querySelector(`[data-k="${fk}"] input, button[data-k="${fk}"]`); if (el) el.focus(); }
+}
+async function sendParam(ch, key, value, confirmed = false) {
+  lastControlAt = Date.now();
+  try {
+    const r = await fetch('/api/param', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ch, key, value, confirmed }) });
+    const d = await r.json();
+    if (d.needConfirm && !confirmed) {
+      if (confirm(d.error + '\n\n정말 바꿀까요?')) return sendParam(ch, key, value, true);
+      return false;
+    }
+    if (d.error) { toast(d.error, true); return false; }
+    return true;
+  } catch (e) { toast('프로그램과 연결이 끊겼습니다.', true); return false; }
+}
+function bindParam(row, ch) {
+  const range = row.querySelector('input[type=range]'), label = row.querySelector('.db');
+  const mn = Number(row.dataset.min), mx = Number(row.dataset.max), log = row.dataset.log === '1', unit = row.dataset.unit, key = row.dataset.k;
+  const paint = () => range.style.setProperty('--p', (range.value / 10) + '%');
+  const val = () => toVal(Number(range.value), mn, mx, log);
+  paint();
+  let last = 0, pend = null;
+  const send = async () => { if (!(await sendParam(ch, key, val()))) setTimeout(() => updateDetail(true), 100); };
+  range.addEventListener('pointerdown', () => interacting = true);
+  range.addEventListener('pointerup', () => interacting = false);
+  range.addEventListener('input', () => {
+    paint(); label.textContent = fmtParam(val(), unit);
+    clearTimeout(pend);
+    if (Date.now() - last > 150) { last = Date.now(); send(); } else pend = setTimeout(() => { last = Date.now(); send(); }, 150);
+  });
+  range.addEventListener('change', () => { interacting = false; setTimeout(() => updateDetail(true), 900); });
+}
+function bindToggle(btn, ch) {
+  btn.addEventListener('click', async () => {
+    const turnOn = btn.dataset.on !== '1';
+    btn.disabled = true;
+    if (await sendParam(ch, btn.dataset.k, turnOn ? 1 : 0)) { btn.dataset.on = turnOn ? 1 : 0; btn.classList.toggle('is-on', turnOn); btn.textContent = turnOn ? '켜짐' : '꺼짐'; }
+    btn.disabled = false;
+    setTimeout(() => updateDetail(true), 400);
+  });
+}
+setInterval(() => { if (!document.hidden && !$('dlg').open) updateDetail(); }, 2500);
+
+// ================= 이펙트 탭 =================
+var fxKey = '';
+var fxUses = {};          // 'c3' / 'm1' / 'b1' / 'x2' → [{slot, model, on, pos}]
+function buildFxUses(d) {
+  const map = {}, pre = { ch: 'c', bus: 'b', main: 'm', mtx: 'x' };
+  (d['이펙트'] || []).forEach(f => (f['사용처'] || []).forEach(u => {
+    if (!pre[u.kind] || f['종류'] === '비어 있음') return;
+    (map[pre[u.kind] + u.idx] ||= []).push({ slot: f['슬롯'], model: f['종류'], on: u['켜짐'], pos: u.pos });
+  }));
+  Object.values(map).forEach(l => l.sort((a, b) => (a.pos === 'preins' ? 0 : 1) - (b.pos === 'preins' ? 0 : 1)));
+  const changed = JSON.stringify(map) !== JSON.stringify(fxUses);
+  fxUses = map;
+  if (changed && lastData && !interacting) drawFlow(lastData);
+}
+async function loadEffects(force = false) {
+  if (!force && (interacting || Date.now() - lastControlAt < 2000)) return;
+  if (loadEffects.busy) return;            // 앞 요청이 끝나기 전에는 다시 보내지 않음
+  loadEffects.busy = true;
+  let d;
+  try { d = await (await fetch('/api/effects', { cache: 'no-store' })).json(); } catch (e) { return; } finally { loadEffects.busy = false; }
+  if (d.error) { $('fxList').innerHTML = `<div class="empty">${esc(d.error)}</div>`; return; }
+  buildFxUses(d);
+  if ($('viewFx').hidden) return;
+  const key = JSON.stringify(d); if (key === fxKey) return; fxKey = key;
+  const openSlots = new Set([...document.querySelectorAll('#fxList details[open]')].map(x => x.dataset.slot));
+  // 세부값 한 줄: 이름 · 값 · −/+ (숫자일 때만)
+  const fxRow = (slot, p, big) => `<div class="fxp ${big ? 'big' : ''}" data-slot="${slot}" data-p="${esc(p['이름'])}" data-v="${p['값'] ?? ''}" data-t="${esc(p['표시값'])}">
+      <span class="nm" title="${esc(p['이름'])}">${esc(p['설명'])}</span>
+      ${p['값'] != null ? `<button class="step" data-d="-1" aria-label="${esc(p['설명'])} 줄이기">−</button>` : '<span></span>'}
+      <span class="val">${esc(p['표시값'])}</span>
+      ${p['값'] != null ? `<button class="step" data-d="1" aria-label="${esc(p['설명'])} 늘리기">+</button>` : '<span></span>'}</div>`;
+  $('fxList').innerHTML = d['이펙트'].map(f => {
+    const uses = f['사용처'].length ? f['사용처'].map(u => `<b>${esc(u['이름'] || u['대상'])}</b> ${esc(u['위치'])}${u['켜짐'] ? '' : ' (꺼짐)'}`).join(' · ') : '아무 데도 연결 안 됨';
+    const params = f['설정'] || [], main = params.find(p => p['이름'] === f['주요']);
+    return `<div class="fxcard"><div class="top"><span class="slot">${f['슬롯']}</span><span class="model">${esc(f['종류'])}</span></div>
+      <div class="use">${uses}</div>
+      ${main ? fxRow(f['슬롯'], main, true) : ''}
+      ${f['섞는양_%'] != null ? prow('전체 섞는 양', 'fx' + f['슬롯'], f['섞는양_%'], 0, 100, '%') : ''}
+      ${params.length ? `<details data-slot="${f['슬롯']}" ${openSlots.has(String(f['슬롯'])) ? 'open' : ''}><summary>모든 설정 ${params.length}개</summary>
+        ${params.map(p => fxRow(f['슬롯'], p, false)).join('')}</details>` : ''}</div>`;
+  }).join('') || '<div class="empty">사용 중인 이펙트가 없습니다.</div>';
+  // −/+ : 표시 자릿수에 맞춰 한 칸씩 (주파수 'k' 값은 6%씩)
+  $('fxList').querySelectorAll('.fxp .step').forEach(b => b.onclick = async () => {
+    const row = b.closest('.fxp'), v = Number(row.dataset.v), t = row.dataset.t, dir = Number(b.dataset.d);
+    if (!isFinite(v)) return;
+    let nv;
+    if (/k/i.test(t) || (Math.abs(v) >= 200 && !/\./.test(t))) nv = v * (dir > 0 ? 1.06 : 1 / 1.06);
+    else { const dec = (t.split('.')[1] || '').length; const step = dec >= 2 ? 0.05 : dec === 1 ? 0.5 : (Math.abs(v) >= 100 ? 5 : 1); nv = v + dir * step; }
+    lastControlAt = Date.now();
+    try {
+      const r = await post('/api/fxparam', { slot: Number(row.dataset.slot), param: row.dataset.p, value: Number(nv.toFixed(4)) });
+      row.querySelector('.val').textContent = r.result['현재'];
+    } catch (e) { toast(e.message, true); }
+    setTimeout(() => loadEffects(true), 700);
+  });
+  $('fxList').querySelectorAll('.prow[data-k]').forEach(row => {
+    const slot = Number(row.dataset.k.slice(2)), range = row.querySelector('input'), label = row.querySelector('.db');
+    const paint = () => range.style.setProperty('--p', (range.value / 10) + '%'); paint();
+    let last = 0, pend = null;
+    const send = async () => {
+      lastControlAt = Date.now();
+      try { await post('/api/fxmix', { slot, value: range.value / 10 }); } catch (e) { toast(e.message, true); }
+    };
+    range.addEventListener('pointerdown', () => interacting = true);
+    range.addEventListener('pointerup', () => interacting = false);
+    range.addEventListener('input', () => { paint(); label.textContent = Math.round(range.value / 10) + '%'; clearTimeout(pend);
+      if (Date.now() - last > 150) { last = Date.now(); send(); } else pend = setTimeout(() => { last = Date.now(); send(); }, 150); });
+    range.addEventListener('change', () => { interacting = false; setTimeout(() => loadEffects(true), 900); });
+  });
+}
+setInterval(() => { if (!document.hidden) loadEffects(); }, 10000);
+setTimeout(() => loadEffects(true), 1500);
+loadSpeakers().then(() => { if (lastData) drawFlow(lastData); });   // 처음 켤 때 흐름도 이펙트 표시용
+
+// ================= 라우팅 변경 =================
+async function routePost(path, body) {
+  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  return r.json();
+}
+function afterRouteChange(msg) {
+  closeDialog();
+  toastAction(msg, '↶ 되돌리기', async () => {
+    const r = await routePost('/api/route/undo', {});
+    if (r.error) toast(r.error, true); else toast('라우팅을 되돌렸어요');
+    refreshAll();
+  });
+  refreshAll();
+}
+function refreshAll() { lastControlAt = 0; renderAlerts.last = ''; loadRouting(); updateDetail(true); routeState(); }
+// 두 단계: ① confirmed 없이 보내 바뀔 내용을 받음 → ② 사용자가 '바꾸기'를 누르면 confirmed:true
+function twoStep(d, path, buildBody, onDone) {
+  const pv = d.querySelector('#rtPreview'), go = d.querySelector('#rtGo');
+  let pending = null;
+  const reset = () => { pending = null; go.textContent = '바뀔 내용 보기'; go.classList.remove('danger'); go.classList.add('primary'); pv.className = 'preview'; pv.textContent = '고른 뒤 ‘바뀔 내용 보기’를 누르세요.'; };
+  d.querySelectorAll('select, input').forEach(el => el.addEventListener('change', reset));
+  reset();
+  go.onclick = async ev => {
+    ev.preventDefault();
+    const body = buildBody(); if (!body) return;
+    go.disabled = true;
+    try {
+      if (!pending) {
+        const r = await routePost(path, body);
+        if (r.needConfirm) { pending = body; pv.className = 'preview warn'; pv.textContent = r.error + '\n\n맞으면 ‘확인 — 바꾸기’를 누르세요.'; go.textContent = '확인 — 바꾸기'; go.classList.remove('primary'); go.classList.add('danger'); }
+        else if (r.error) { pv.className = 'preview'; pv.textContent = '⚠ ' + r.error; }
+        else { pv.textContent = (r.result && (r.result['결과'] || '바뀐 것이 없어요.')) || '바뀐 것이 없어요.'; }
+      } else {
+        const r = await routePost(path, { ...pending, confirmed: true });
+        if (r.error) { pv.className = 'preview'; pv.textContent = '⚠ ' + r.error; pending = null; go.textContent = '바뀔 내용 보기'; }
+        else onDone(r.result);
+      }
+    } catch (e) { pv.textContent = '⚠ 프로그램과 연결이 끊겼습니다.'; }
+    go.disabled = false;
+  };
+}
+async function openInputDialog(ch, d) {
+  let cat;
+  try { cat = (await (await fetch('/api/inputs', { cache: 'no-store' })).json()).groups; } catch (e) { return toast('입력 목록을 불러오지 못했어요', true); }
+  if (!cat || !cat.length) return toast('입력 목록을 불러오지 못했어요', true);
+  const cur = (d['입력'] || {})['연결'] || '없음';
+  const optNums = g => Array.from({ length: g.count }, (_, i) => i + 1).map(n => `<option value="${n}">${n}${g.names[n] ? ' · ' + esc(g.names[n]) : ''}</option>`).join('');
+  openDialog(`
+    <header><h3>‘${esc(d['이름'] || ('채널 ' + ch))}’ 입력 단자 바꾸기</h3>
+      <p>지금: <b>${esc(cur)}</b>. 콘솔 ROUTING → CHANNELS 화면과 같은 기능이에요.</p></header>
+    <div class="body">
+      <div class="sel2"><select id="rtGrp">${cat.map(g => `<option value="${g.grp}">${esc(g.label)}</option>`).join('')}</select>
+        <select id="rtNum"></select></div>
+      <div id="rtPreview" class="preview"></div>
+      <p class="muted">⚠ 바꾸는 즉시 이 채널 소리가 바뀌거나 끊길 수 있어요. 예배 중이면 특히 조심하세요. 바꾼 뒤 ‘되돌리기’로 원래대로 돌릴 수 있어요.</p>
+    </div>
+    <footer><button value="cancel">취소</button><button class="primary" id="rtGo" value="">바뀔 내용 보기</button></footer>`, dlg => {
+    const gs = dlg.querySelector('#rtGrp'), ns = dlg.querySelector('#rtNum');
+    const fill = () => { const g = cat.find(x => x.grp === gs.value); ns.innerHTML = optNums(g); };
+    const m = /^(.+?) (\d+)번$/.exec(cur);   // 지금 연결을 기본으로 선택
+    const g0 = m && cat.find(g => g.label === m[1]);
+    if (g0) gs.value = g0.grp;
+    fill();
+    if (m) ns.value = m[2];
+    gs.addEventListener('change', fill);
+    twoStep(dlg, '/api/route/input', () => ({ ch, grp: gs.value, num: Number(ns.value) }),
+      r => afterRouteChange(`입력을 바꿨어요: ${r['이전'] || ''} → ${r['현재'] || ''}`));
+  });
+}
+async function openOutputDialog(key, label) {
+  const kind = { b: 'bus', m: 'main', x: 'mtx' }[key[0]], num = Number(key.slice(1));
+  let st;
+  try { st = await (await fetch('/api/route/state', { cache: 'no-store' })).json(); } catch (e) { return toast('출력 목록을 불러오지 못했어요', true); }
+  const groups = st.outGroups || [];
+  const curOuts = ((lastData && lastData.outputs) || {})[key] || [];
+  openDialog(`
+    <header><h3>‘${esc(label)}’ 출력 단자 바꾸기</h3>
+      <p>지금: <b>${esc(curOuts.join(' · ') || '연결된 출력 단자 없음')}</b>. 콘솔 ROUTING → OUTPUTS 화면과 같은 기능이에요.</p></header>
+    <div class="body">
+      <div class="muted">할 일</div>
+      <div class="sel2"><select id="rtMode"><option value="connect">‘${esc(label)}’ 소리를 이 출력 단자로 보내기</option><option value="off">이 출력 단자 끄기(연결 끊기)</option></select></div>
+      <div class="muted">출력 단자</div>
+      <div class="sel2"><select id="rtGrp">${groups.map(g => `<option value="${g.grp}">${esc(g.label)}</option>`).join('')}</select>
+        <select id="rtNum"><option>불러오는 중…</option></select></div>
+      <label class="opt" style="padding:4px 2px"><input type="checkbox" id="rtStereo" checked><span>스테레오 (두 칸: 고른 번호 = L, 다음 번호 = R)<small>모니터 스피커 한 대·P16 한 채널처럼 한 줄만 필요하면 끄세요 (L만 보냄)</small></span></label>
+      <div id="rtPreview" class="preview"></div>
+      <p class="muted">⚠ 그 단자에 원래 연결된 것은 덮어써져요. 바꾸는 즉시 그 단자에 연결된 스피커·모니터 소리가 바뀌어요. ‘되돌리기’로 원래대로 돌릴 수 있어요.</p>
+    </div>
+    <footer><button value="cancel">취소</button><button class="primary" id="rtGo" value="">바뀔 내용 보기</button></footer>`, dlg => {
+    const gs = dlg.querySelector('#rtGrp'), ns = dlg.querySelector('#rtNum'), mode = dlg.querySelector('#rtMode'), stereo = dlg.querySelector('#rtStereo');
+    const load = async () => {
+      ns.innerHTML = '<option>불러오는 중…</option>';
+      try {
+        const r = await (await fetch('/api/outputs?grp=' + encodeURIComponent(gs.value), { cache: 'no-store' })).json();
+        ns.innerHTML = (r.outputs || []).map(o => `<option value="${o.n}">${o.n} · 지금: ${esc(o.now)}</option>`).join('') || '<option value="">출력 없음</option>';
+      } catch (e) { ns.innerHTML = '<option value="">불러오지 못함</option>'; }
+    };
+    const m = /^(.+?) (\d+)/.exec(curOuts[0] || '');
+    const g0 = m && groups.find(g => g.label === m[1]);
+    if (g0) gs.value = g0.grp;
+    load().then(() => { if (m) ns.value = m[2]; });
+    gs.addEventListener('change', load);
+    mode.addEventListener('change', () => { stereo.disabled = mode.value === 'off'; });
+    twoStep(dlg, '/api/route/output', () => {
+      if (!ns.value) return null;
+      return mode.value === 'off'
+        ? { og: gs.value, on: Number(ns.value), source: 'off', stereo: false }
+        : { og: gs.value, on: Number(ns.value), source: kind, sn: num, stereo: stereo.checked };
+    }, r => afterRouteChange('출력 연결을 바꿨어요'));
+  });
+}
+async function routeState() {
+  try {
+    const st = await (await fetch('/api/route/state', { cache: 'no-store' })).json();
+    const b = $('routeUndoBar');
+    if (st.undo) { b.hidden = false; b.querySelector('span').textContent = `최근 라우팅 변경: ${st.undo.replace(' 되돌리기', '')}`; }
+    else b.hidden = true;
+  } catch (e) {}
+}
+function toastAction(msg, label, fn) {
+  const el = $('toast');
+  el.innerHTML = `${esc(msg)} <button class="mini" style="margin-left:10px">${esc(label)}</button>`;
+  el.className = 'show'; el.style.pointerEvents = 'auto';
+  el.querySelector('button').onclick = () => { el.className = ''; el.style.pointerEvents = 'none'; fn(); };
+  clearTimeout(toast.t); toast.t = setTimeout(() => { el.className = ''; el.style.pointerEvents = 'none'; }, 12000);
+}
+
+// ================= 라우팅 탭 =================
+var routeTabKey = '';
+function renderRouteTab() {
+  if (!lastData || $('viewRoute').hidden) return;
+  const d = lastData, outs = d.outputs || {};
+  const key = JSON.stringify([d.channels.map(c => [c.ch, c.name, c.srcLong]), outs, d.otherOutputs,
+    (d.mains || []).map(m => m.name), d.monitors.map(b => b.name), (d.matrices || []).map(x => x.name)]);
+  if (key === routeTabKey) return;
+  routeTabKey = key;
+  const chRows = d.channels.filter(c => c.name || c.srcLong !== '입력 없음').map(c => `
+    <tr><td class="num">${c.ch}</td><td><span class="sw" style="background:${colors[c.ch] || 'var(--muted)'}"></span>${esc(c.name || ('채널 ' + c.ch))}</td>
+      <td class="arrow">←</td><td>${esc(c.srcLong || '알 수 없음')}</td>
+      <td class="act"><button class="mini" data-in="${c.ch}">입력 바꾸기</button></td></tr>`).join('');
+  const dstList = [...(d.mains || []).map(m => ({ key: 'm' + (m.main || 1), icon: '🔊', label: m.name })),
+                   ...d.monitors.map(b => ({ key: 'b' + b.bus, icon: '🎧', label: b.name })),
+                   ...(d.matrices || []).map(x => ({ key: 'x' + x.mtx, icon: '📺', label: x.name }))];
+  const outRows = dstList.map(o => `
+    <tr><td class="num">${o.icon}</td><td>${esc(o.label)}</td><td class="arrow">→</td>
+      <td>${(outs[o.key] || []).length ? esc(outs[o.key].join(' · ')) : '<span class="muted">출력 단자 없음</span>'}</td>
+      <td class="act"><button class="mini" data-out="${o.key}" data-label="${esc(o.label)}">출력 바꾸기</button></td></tr>`).join('');
+  const other = d.otherOutputs || [];
+  $('routeTab').innerHTML = `
+    <div class="rtsec"><h4>🗺 라우팅 도식 <span class="muted">— 상자를 누르면 바꾸기 창이 열려요</span></h4><div id="routeSvg"></div></div>
+    <div class="rtsec"><h4>🎤 입력 <span class="muted">— 어느 단자(스테이지박스 번호)의 소리가 어느 채널로 들어오나 · ROUTING → CHANNELS</span></h4>
+      <table class="rt"><tbody>${chRows}</tbody></table></div>
+    <div class="rtsec"><h4>🔌 출력 <span class="muted">— 메인·모니터·매트릭스 소리가 어느 단자로 나가나 · ROUTING → OUTPUTS</span></h4>
+      <table class="rt"><tbody>${outRows}</tbody></table></div>
+    ${other.length ? `<div class="rtsec"><h4>그 밖의 출력 연결 <span class="muted">(녹음·USB·직접 연결 등 — 보기만)</span></h4><ul class="muted">${other.map(t => `<li>${esc(t)}</li>`).join('')}</ul></div>` : ''}`;
+  drawRouteDiagram(d, dstList);
+  $('routeTab').querySelectorAll('[data-in]').forEach(b => b.onclick = () => {
+    const c = d.channels.find(x => x.ch === Number(b.dataset.in));
+    openInputDialog(c.ch, { '이름': c.name || ('채널 ' + c.ch), '입력': { '연결': c.srcLong } });
+  });
+  $('routeTab').querySelectorAll('[data-out]').forEach(b => b.onclick = () => openOutputDialog(b.dataset.out, b.dataset.label));
+}
+
+// ================= 스피커 이름표 =================
+var spk = { speakers: {}, types: {} };
+async function loadSpeakers() {
+  try { spk = await (await fetch('/api/speakers', { cache: 'no-store' })).json(); } catch (e) {}
+}
+// 이름표가 없을 때의 추측 (출력 이름으로)
+function guessSpeaker(dst, grp) {
+  const L = (dst.label || '').toUpperCase();
+  if (grp === 'USB') return { name: dst.label + ' → PC 녹음', type: 'stream' };
+  if (grp === 'REC') return { name: dst.label + ' USB 녹음', type: 'stream' };
+  if (grp === 'CRD') return { name: dst.label + ' 카드 녹음', type: 'stream' };
+  if (/YOUTUBE|STREAM|방송|유튜브/.test(L)) return { name: dst.label + ' (방송)', type: 'stream' };
+  if (dst.key[0] === 'x') return { name: dst.label + ' 스피커', type: 'room' };
+  if (dst.key[0] === 'm') return { name: dst.label + ' 스피커', type: 'pa' };
+  if (/P16|P-16|PERSONAL/.test(L)) return { name: dst.label, type: 'p16' };
+  if (/IEM|인이어/.test(L)) return { name: dst.label, type: 'iem' };
+  return { name: dst.label + ' 모니터', type: 'wedge' };
+}
+// 한 출력(메인·모니터 등)의 단자들을 '스피커' 묶음으로: 같은 이름표가 붙은 단자끼리 / 이름표 없는 단자끼리 연속 구간
+function speakerGroups(dst, d) {
+  const raw = (d.outputRaw || {})[dst.key] || {}, gl = d.outGroupLabels || {}, out = [];
+  Object.entries(raw).forEach(([grp, nums]) => {
+    let cur = null;
+    nums.forEach(n => {
+      const tag = spk.speakers[`${grp}:${n}`];
+      const id = tag ? 'T:' + tag.name + '|' + tag.type : 'G';
+      if (cur && cur.id === id && n === cur.last + 1) { cur.nums.push(n); cur.last = n; return; }
+      cur = { id, grp, grpLabel: gl[grp] || grp, nums: [n], last: n, tagged: !!tag, ...(tag || guessSpeaker(dst, grp)) };
+      out.push(cur);
+    });
+  });
+  out.forEach(g => g.sockLabel = `${g.grpLabel} ${g.nums.length > 1 ? g.nums[0] + '-' + g.nums[g.nums.length - 1] : g.nums[0]}`);
+  return out;
+}
+function spkIcon(type) { return (spk.types[type] || {}).icon || '🔌'; }
+function openSpeakerDialog(g) {
+  const opts = Object.entries(spk.types).map(([k, v]) => `<option value="${k}" ${k === g.type ? 'selected' : ''}>${v.icon} ${esc(v.label)}</option>`).join('');
+  openDialog(`
+    <header><h3>스피커 이름 붙이기</h3>
+      <p><b>${esc(g.sockLabel)}</b> 단자에 연결된 스피커(장비)의 이름을 적어 주세요. 콘솔 설정은 바뀌지 않고, 이 프로그램 화면에만 표시돼요.</p></header>
+    <div class="body">
+      <label class="field">이름<input type="text" id="spName" maxlength="30" value="${esc(g.tagged ? g.name : '')}" placeholder="${esc(g.name)}" autocomplete="off"></label>
+      <div class="muted">종류</div>
+      <div class="sel2"><select id="spType">${opts}</select></div>
+      <div class="muted">적용할 단자</div>
+      <div class="chips">${g.nums.map(n => `<label class="opt" style="padding:2px 6px"><input type="checkbox" class="spN" value="${n}" checked><span>${esc(g.grpLabel)} ${n}${g.nums.length === 2 ? (n === g.nums[0] ? ' (L)' : ' (R)') : ''}</span></label>`).join('')}</div>
+      <div class="ctlmsg" id="spMsg"></div>
+    </div>
+    <footer>${g.tagged ? '<button class="danger" id="spDel" value="">이름표 지우기</button>' : ''}<span class="grow-sp"></span>
+      <button value="cancel">취소</button><button class="primary" id="spSave" value="">저장</button></footer>`, d => {
+    const nameIn = d.querySelector('#spName');
+    const save = async (name) => {
+      const nums = [...d.querySelectorAll('.spN:checked')].map(x => Number(x.value));
+      if (!nums.length) { d.querySelector('#spMsg').textContent = '단자를 하나 이상 고르세요.'; return; }
+      try {
+        await post('/api/speakers', { items: nums.map(n => ({ key: `${g.grp}:${n}`, name, type: d.querySelector('#spType').value })) });
+        closeDialog(); toast(name ? `‘${name}’ 이름표를 붙였어요` : '이름표를 지웠어요');
+        await loadSpeakers(); routeTabKey = ''; renderRouteTab(); if (lastData) drawFlow(lastData);
+      } catch (e) { d.querySelector('#spMsg').textContent = e.message; }
+    };
+    d.querySelector('#spSave').onclick = ev => { ev.preventDefault(); save(nameIn.value.trim() || g.name); };
+    const del = d.querySelector('#spDel'); if (del) del.onclick = ev => { ev.preventDefault(); save(''); };
+    nameIn.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); d.querySelector('#spSave').click(); } });
+    setTimeout(() => nameIn.focus(), 30);
+  });
+}
+
+// 라우팅 도식: [입력 단자] → [채널]  ┃  [메인·모니터·매트릭스] → [출력 단자] → [스피커]
+function drawRouteDiagram(d, dstList) {
+  const box = $('routeSvg'); if (!box) return;
+  const W = Math.max(box.clientWidth || 900, 700);
+  const chans = d.channels.filter(c => c.name || c.srcLong !== '입력 없음');
+  // 오른쪽: 출력마다 스피커 묶음
+  const groups = [];
+  dstList.forEach((o, i) => speakerGroups(o, d).forEach(g => groups.push({ ...g, dst: o, di: i })));
+  // 스피커 상자는 같은 이름+종류끼리 하나로
+  const spkNodes = [];
+  groups.forEach(g => {
+    const k = (g.tagged ? 'T' : 'G' + g.dst.key + g.grp) + g.name + '|' + g.type;
+    let s = spkNodes.find(x => x.k === k);
+    if (!s) { s = { k, name: g.name, type: g.type, tagged: g.tagged, groups: [] }; spkNodes.push(s); }
+    s.groups.push(g); g.spk = s;
+  });
+  const rowH = 26, pad = 14, bh = 20;
+  const rightRows = Math.max(dstList.length, groups.length, spkNodes.length);
+  const H = Math.max(chans.length, rightRows) * rowH + pad * 2 + 22;
+  const cw = Math.max(108, Math.min(150, W * 0.125)), gapR = Math.max(34, W * 0.04);
+  const x1 = 8, x2 = x1 + cw + 34;                                   // 입력 단자, 채널
+  const x5 = W - cw - 8, x4 = x5 - cw - gapR, x3 = x4 - cw - gapR;  // 메인·모니터, 출력 단자, 스피커
+  const mid = (x2 + cw + x3) / 2;
+  const top = pad + 22, span = H - pad * 2 - 22;
+  const yAt = (i, n) => top + (i + 0.5) * span / Math.max(1, n);
+  const cut = (t, n) => t.length > n ? t.slice(0, n - 1) + '…' : t;
+  const chars = Math.floor(cw / 7.2);
+  const OUTCOL = ['#fbbf24', '#22d3ee', '#a78bfa', '#34d399', '#f472b6', '#fb923c', '#5b8cff', '#a3e635', '#f87171', '#2dd4bf', '#c084fc', '#facc15', '#60a5fa'];
+  let g = '';
+  const head = (x, t) => `<text class="rd-head" x="${x + cw / 2}" y="${pad + 4}" text-anchor="middle">${t}</text>`;
+  g += head(x1, '🎤 입력 단자') + head(x2, '채널') + head(x3, '메인·모니터') + head(x4, '🔌 출력 단자') + head(x5, '🔊 스피커');
+  g += `<line x1="${mid}" y1="${pad + 14}" x2="${mid}" y2="${H - pad}" class="rd-mid"/>
+        <text class="rd-midtxt" x="${mid}" y="${H / 2}" text-anchor="middle" transform="rotate(-90 ${mid} ${H / 2})">콘솔 안에서 섞임 (흐름도 탭)</text>`;
+  chans.forEach((c, i) => {
+    const y = yAt(i, chans.length), col = colors[c.ch] || '#8a92a6', src = (c.srcLong || '없음').replace('번', '');
+    g += `<g class="rd-nd" data-in="${c.ch}">
+      <rect class="rd-box sock" x="${x1}" y="${y - bh / 2}" width="${cw}" height="${bh}" rx="7"/>
+      <text class="rd-t" x="${x1 + 8}" y="${y + 4}">${esc(cut(src, chars))}</text>
+      <path class="rd-ln" d="M${x1 + cw},${y} L${x2},${y}" stroke="${col}"/>
+      <rect class="rd-box" x="${x2}" y="${y - bh / 2}" width="${cw}" height="${bh}" rx="7" style="stroke:${col}"/>
+      <text class="rd-t b" x="${x2 + 8}" y="${y + 4}">${esc(cut(c.ch + ' ' + (c.name || '채널 ' + c.ch), chars))}</text>
+      <title>${esc(c.name || '채널 ' + c.ch)} ← ${esc(c.srcLong || '')} (눌러서 입력 바꾸기)</title></g>`;
+  });
+  const curve = (xa, ya, xb, yb) => { const mx = (xa + xb) / 2; return `M${xa},${ya} C${mx},${ya} ${mx},${yb} ${xb},${yb}`; };
+  // 메인·모니터 → 출력 단자 → 스피커
+  dstList.forEach((o, i) => {
+    const y = yAt(i, dstList.length), col = OUTCOL[i % OUTCOL.length];
+    g += `<g class="rd-nd" data-out="${o.key}" data-label="${esc(o.label)}">
+      <rect class="rd-box" x="${x3}" y="${y - bh / 2}" width="${cw}" height="${bh}" rx="7" style="stroke:${col}"/>
+      <text class="rd-t b" x="${x3 + 8}" y="${y + 4}">${o.icon} ${esc(cut(o.label, chars - 2))}</text>
+      <title>${esc(o.label)} (눌러서 출력 바꾸기)</title></g>`;
+    o._y = y; o._col = col;
+  });
+  groups.forEach((gr, j) => {
+    const y = yAt(j, groups.length), o = gr.dst;
+    gr._y = y;
+    g += `<path class="rd-ln out" data-k="${o.key}" d="${curve(x3 + cw, o._y, x4, y)}" stroke="${o._col}"><title>${esc(o.label)} → ${esc(gr.sockLabel)}</title></path>
+      <g class="rd-nd" data-out="${o.key}" data-label="${esc(o.label)}">
+        <rect class="rd-box sock" x="${x4}" y="${y - bh / 2}" width="${cw}" height="${bh}" rx="7"/>
+        <text class="rd-t" x="${x4 + 8}" y="${y + 4}">${esc(cut(gr.sockLabel, chars))}</text>
+        <title>${esc(gr.sockLabel)} ← ${esc(o.label)}</title></g>`;
+  });
+  spkNodes.forEach((s, k) => {
+    const y = yAt(k, spkNodes.length);
+    s.groups.forEach(gr => { g += `<path class="rd-ln out spkln" data-k="${gr.dst.key}" d="${curve(x4 + cw, gr._y, x5, y)}" stroke="${gr.dst._col}"/>`; });
+    const label = spkIcon(s.type) + ' ' + s.name;
+    g += `<g class="rd-nd spk ${s.tagged ? '' : 'guess'}" data-spk="${k}">
+      <rect class="rd-box spkbox" x="${x5}" y="${y - bh / 2}" width="${cw}" height="${bh}" rx="10"/>
+      <text class="rd-t b" x="${x5 + 8}" y="${y + 4}">${esc(cut(label, chars))}</text>
+      <title>${esc(s.name)}${s.tagged ? '' : ' (추측 — 눌러서 이름 붙이기)'} · ${esc(s.groups.map(x => x.sockLabel).join(', '))}</title></g>`;
+  });
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="라우팅 도식">${g}</svg>
+    <div class="muted" style="margin-top:6px">🔊 스피커 이름은 콘솔이 모르는 정보라 직접 붙여요. 흐린 이름은 추측이에요 — 눌러서 실제 이름을 붙이세요.</div>`;
+  box.querySelectorAll('[data-in]').forEach(n => n.onclick = () => {
+    const c = d.channels.find(x => x.ch === Number(n.dataset.in));
+    openInputDialog(c.ch, { '이름': c.name || ('채널 ' + c.ch), '입력': { '연결': c.srcLong } });
+  });
+  box.querySelectorAll('g[data-out]').forEach(n => n.onclick = () => openOutputDialog(n.dataset.out, n.dataset.label));
+  box.querySelectorAll('g[data-spk]').forEach(n => n.onclick = () => {
+    const s = spkNodes[Number(n.dataset.spk)], g0 = s.groups[0];
+    openSpeakerDialog({ ...g0, nums: s.groups.filter(x => x.grp === g0.grp).flatMap(x => x.nums) });
+  });
+  const svg = box.querySelector('svg');
+  box.querySelectorAll('g[data-out]').forEach(n => {
+    n.addEventListener('mouseenter', () => { svg.classList.add('focus'); svg.querySelectorAll(`.rd-ln.out[data-k="${n.dataset.out}"]`).forEach(l => l.classList.add('on')); });
+    n.addEventListener('mouseleave', () => { svg.classList.remove('focus'); svg.querySelectorAll('.rd-ln.on').forEach(l => l.classList.remove('on')); });
+  });
+}
+
+// ================= 설정: Claude API 키 =================
+// ================= 설정 창 (교회 정보 · 콘솔 연결 · API 키 · 백업) =================
+async function getSetup() { return (await fetch('/api/setup', { cache: 'no-store' })).json(); }
+let consoleModel = 'WING', brandName = '';
+function setBrand(name) {
+  brandName = name || '';
+  const fam = document.body.dataset.fam === 'x32' ? (consoleModel.startsWith('M32') ? 'Midas ' : 'Behringer ') + consoleModel : 'Behringer ' + consoleModel;
+  $('brandSub').textContent = (brandName ? brandName + ' · ' : '') + fam + ' 음향 도우미';
+}
+
+const NOTES_EXAMPLE = '예)\n- A 버스 = 드럼 모니터, B = 베이스 모니터\n- VOX P16 = 싱어들 개인 모니터\n- 주일 2부 예배만 YOUTUBE 송출\n- 설교 때는 BOX 1(인도자) 마이크 끄기';
+
+// 콘솔 찾기 영역 (마법사와 설정 창에서 같이 씀)
+function consolePicker(cur) {
+  return `<div id="cpList" class="cplist"><div class="muted">‘콘솔 찾기’를 누르면 같은 네트워크의 WING을 찾아요.</div></div>
+    <div class="sel2"><button id="cpFind" type="button">🔍 콘솔 찾기</button>
+      <input type="text" id="cpIp" placeholder="직접 입력 (예: 192.168.0.10) · 비우면 자동" value="${esc(cur || '')}" style="flex:1;font:inherit;padding:9px 10px;border-radius:12px;border:1px solid var(--line2);background:var(--bg);color:var(--text)"></div>`;
+}
+function bindConsolePicker(d) {
+  const list = d.querySelector('#cpList'), ip = d.querySelector('#cpIp');
+  d.querySelector('#cpFind').onclick = async () => {
+    list.innerHTML = '<div class="muted">찾는 중…</div>';
+    try {
+      const r = await (await fetch('/api/discover', { cache: 'no-store' })).json();
+      if (!r.consoles.length) { list.innerHTML = '<div class="muted">콘솔을 찾지 못했어요. 콘솔 전원·랜선(공유기 연결)을 확인하거나 IP를 직접 입력하세요.</div>'; return; }
+      list.innerHTML = r.consoles.map((c, i) => `<label class="opt"><input type="radio" name="cp" value="${esc(c.ip)}" ${i === 0 ? 'checked' : ''}>
+        <span><b>${esc(c.name || 'WING')}</b> · ${esc(c.ip)}${c.practice ? ' <span class="muted">(연습용 가짜 콘솔)</span>' : ''}<small>${esc(c.label || c.model || '')} · 펌웨어 ${esc(c.firmware || '')}</small></span></label>`).join('');
+      ip.value = r.consoles[0].ip;
+      list.querySelectorAll('input[name=cp]').forEach(x => x.onchange = () => ip.value = x.value);
+    } catch (e) { list.innerHTML = '<div class="muted">찾기에 실패했어요.</div>'; }
+  };
+}
+async function saveConsole(ipValue) {
+  const r = await post('/api/setup', { wing_ip: ipValue });
+  renderAlerts.last = ''; checkHealth(); setTimeout(() => { lastJson = ''; loadRouting(); }, 800);
+  return r;
+}
+
+function keySection(s) {
+  return `<div class="keystate ${s.hasKey ? 'ok' : ''}" id="keyState">${s.hasKey ? '✓ API 키가 설정되어 있어요' : '아직 키가 없어요 (AI 대화 없이 보기·조절만 가능)'}</div>
+    <ol class="steps">
+      <li><a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Claude Console의 API Keys 페이지</a>에서 <b>Create Key</b>로 키를 만들어요.</li>
+      <li>만든 키(<code>sk-ant-</code>로 시작)를 붙여 넣고 <b>확인하고 저장</b>을 눌러요. 키 확인은 요금이 들지 않아요.</li>
+    </ol>
+    <span class="keyrow"><input type="password" id="keyIn" placeholder="sk-ant-..." autocomplete="off" spellcheck="false"
+      style="flex:1;font:inherit;padding:10px 12px;border-radius:12px;border:1px solid var(--line2);background:var(--bg);color:var(--text)">
+      <button id="keyShow" type="button">보기</button><button id="keySave" class="primary" type="button">확인하고 저장</button></span>
+    ${s.hasKey ? '<p><button class="danger mini" id="keyDel" type="button">키 지우기</button></p>' : ''}
+    <div class="ctlmsg" id="keyMsg" style="margin-top:8px"></div>
+    <div class="muted">키는 이 컴퓨터의 <code>config.json</code>에만 저장돼요. 비밀번호처럼 다른 사람에게 보여주지 마세요.</div>`;
+}
+function bindKeySection(d, onSaved) {
+  const inp = d.querySelector('#keyIn'), msg = d.querySelector('#keyMsg'), save = d.querySelector('#keySave');
+  if (!inp) return;
+  d.querySelector('#keyShow').onclick = ev => { inp.type = inp.type === 'password' ? 'text' : 'password'; ev.target.textContent = inp.type === 'password' ? '보기' : '숨기기'; };
+  const submit = async value => {
+    save.disabled = true; msg.style.color = ''; msg.textContent = value ? '키를 확인하는 중…' : '';
+    try {
+      const r = await post('/api/settings', { anthropic_api_key: value });
+      msg.style.color = (r.result === 'ok' || r.result === 'removed') ? 'var(--ok)' : '#fbbf24';
+      msg.textContent = (r.result === 'ok' ? '✓ ' : '') + r.message;
+      d.querySelector('#keyState').textContent = value ? '✓ API 키가 설정되어 있어요' : '아직 키가 없어요';
+      checkHealth();
+      onSaved && onSaved(!!value);
+    } catch (e) { msg.style.color = 'var(--err)'; msg.textContent = e.message; }
+    save.disabled = false;
+  };
+  save.onclick = () => { const v = inp.value.trim(); if (!v) { inp.focus(); msg.textContent = '키를 붙여 넣어 주세요.'; return; } submit(v); };
+  inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); save.click(); } });
+  const del = d.querySelector('#keyDel');
+  if (del) del.onclick = () => { if (confirm('API 키를 지울까요? AI 대화를 쓸 수 없게 됩니다.')) submit(''); };
+}
+function chatNeedsReload(hasKeyNow) {
+  const hadChat = !!document.getElementById('t') && document.body.contains(document.getElementById('t'));
+  if (hadChat !== hasKeyNow) setTimeout(() => location.reload(), 1200);
+}
+
+async function openSettings(tab = 'church') {
+  let s;
+  try { s = await getSetup(); } catch (e) { return toast('프로그램과 연결이 끊겼습니다.', true); }
+  if (!s.canEdit) {
+    return openDialog(`<header><h3>설정</h3></header><div class="body"><div class="hintbox">설정은 이 프로그램이 켜진 컴퓨터(방송실 PC)에서만 바꿀 수 있어요.</div></div>
+      <footer><button value="cancel">닫기</button></footer>`);
+  }
+  const tabs = [['church', '⛪ 교회 정보'], ['console', '🎚 콘솔 연결'], ['manual', '📖 설명서'], ['key', '🔑 API 키'], ['backup', '💾 백업·옮기기']];
+  openDialog(`
+    <header><h3>설정</h3><div class="tabs stabs" style="margin-top:10px">${tabs.map(([k, l]) => `<button type="button" data-st="${k}" class="${k === tab ? 'sel' : ''}">${l}</button>`).join('')}</div></header>
+    <div class="body">
+      <section data-sec="church" ${tab === 'church' ? '' : 'hidden'}>
+        <label class="field">교회 이름<input type="text" id="chName" maxlength="40" value="${esc(s.churchName)}" placeholder="예: OO교회" autocomplete="off"></label>
+        <label class="field">교회 음향 메모 <span class="muted">— AI가 항상 참고해요 (버스 용도, 예배별 습관 등)</span>
+          <textarea id="chNotes" rows="7" placeholder="${esc(NOTES_EXAMPLE)}" style="width:100%;margin-top:6px;font:inherit;padding:10px 12px;border-radius:12px;border:1px solid var(--line2);background:var(--bg);color:var(--text);resize:vertical">${esc(s.notes)}</textarea></label>
+        <button class="primary" id="chSave" type="button">저장</button> <span class="ctlmsg" id="chMsg"></span>
+      </section>
+      <section data-sec="console" ${tab === 'console' ? '' : 'hidden'}>
+        <p>지금 연결: <b>${esc(s.connectedIp || '없음')}</b> ${s.wingIp ? '(직접 입력한 IP)' : '(자동 찾기)'}</p>
+        ${consolePicker(s.wingIp)}
+        <p class="muted">IP를 비워 두면 켤 때마다 콘솔을 자동으로 찾아요. 공유기가 콘솔 IP를 자주 바꾸면 자동이 편해요.</p>
+        <button class="primary" id="cpSave" type="button">이 콘솔로 연결</button> <span class="ctlmsg" id="cpMsg"></span>
+        <hr class="sep"><button id="rerunWizard" type="button">처음 설정 마법사 다시 하기</button>
+      </section>
+      <section data-sec="manual" ${tab === 'manual' ? '' : 'hidden'}><div id="mnBox" class="muted">불러오는 중…</div></section>
+      <section data-sec="key" ${tab === 'key' ? '' : 'hidden'}>${keySection(s)}</section>
+      <section data-sec="backup" ${tab === 'backup' ? '' : 'hidden'}>
+        <p><b>내보내기</b> — 교회 이름·메모, 예배 순서 버튼, 스피커 이름표를 파일 하나로 저장해요. (API 키는 안전을 위해 빠져요)</p>
+        <p><a class="btnlink" href="/api/backup" download>💾 설정 파일 내려받기</a></p>
+        <hr class="sep">
+        <p><b>가져오기</b> — 다른 PC·다른 교회에서 내보낸 설정 파일을 불러와요. 지금 설정은 덮어써져요.</p>
+        <input type="file" id="rsFile" accept=".json,application/json">
+        <div id="rsParts" style="margin-top:8px"></div>
+        <div class="ctlmsg" id="rsMsg"></div>
+      </section>
+    </div>
+    <footer><span class="grow-sp"></span><button value="cancel">닫기</button></footer>`, d => {
+    d.querySelectorAll('[data-st]').forEach(b => b.onclick = () => {
+      d.querySelectorAll('[data-st]').forEach(x => x.classList.toggle('sel', x === b));
+      d.querySelectorAll('[data-sec]').forEach(x => x.hidden = x.dataset.sec !== b.dataset.st);
+    });
+    d.querySelector('#chSave').onclick = async () => {
+      const m = d.querySelector('#chMsg');
+      try { await post('/api/setup', { church_name: d.querySelector('#chName').value, notes: d.querySelector('#chNotes').value });
+        m.style.color = 'var(--ok)'; m.textContent = '저장했어요. AI가 이제 이 메모를 참고해요.'; setBrand(d.querySelector('#chName').value.trim()); }
+      catch (e) { m.style.color = 'var(--err)'; m.textContent = e.message; }
+    };
+    bindConsolePicker(d);
+    d.querySelector('#cpSave').onclick = async () => {
+      const m = d.querySelector('#cpMsg');
+      try { const r = await saveConsole(d.querySelector('#cpIp').value.trim()); m.style.color = 'var(--ok)'; m.textContent = r.connectedIp ? `${r.connectedIp} 로 연결했어요.` : '콘솔을 찾지 못했어요. 켜지면 자동으로 연결돼요.'; }
+      catch (e) { m.style.color = 'var(--err)'; m.textContent = e.message; }
+    };
+    d.querySelector('#rerunWizard').onclick = () => { closeDialog(); openWizard(); };
+    bindKeySection(d, chatNeedsReload);
+    manualSection(d.querySelector('#mnBox'));
+    // 가져오기
+    d.querySelector('#rsFile').onchange = async ev => {
+      const f = ev.target.files[0], m = d.querySelector('#rsMsg'), box = d.querySelector('#rsParts');
+      if (!f) return;
+      let b;
+      try { b = JSON.parse(await f.text()); } catch (e) { m.textContent = '설정 파일을 읽지 못했어요.'; return; }
+      if (b.app !== 'AI 콘솔메이트') { m.textContent = 'AI 콘솔메이트 설정 파일이 아니에요.'; return; }
+      box.innerHTML = `<div class="muted">${esc(b.church_name || '(이름 없음)')} · ${esc(b.saved || '')} 에 저장된 파일</div>
+        <label class="opt"><input type="checkbox" value="church" checked><span>교회 이름·메모</span></label>
+        <label class="opt"><input type="checkbox" value="scenes" checked><span>예배 순서 버튼 ${(b.scenes || []).length}개</span></label>
+        <label class="opt"><input type="checkbox" value="speakers" checked><span>스피커 이름표 ${Object.keys(b.speakers || {}).length}개</span></label>
+        ${(b.manuals || []).length ? `<label class="opt"><input type="checkbox" value="manuals" checked><span>설명서 참고 자료 ${b.manuals.length}개</span></label>` : ''}
+        <button class="primary" id="rsGo" type="button">가져오기</button>
+        <p class="muted">⚠ 다른 교회의 예배 순서 버튼은 채널 구성이 다르면 맞지 않을 수 있어요. 먼저 미리보기로 확인하세요.</p>`;
+      box.querySelector('#rsGo').onclick = async () => {
+        const parts = [...box.querySelectorAll('input:checked')].map(x => x.value);
+        if (!parts.length) return;
+        if (!confirm('선택한 설정을 지금 설정에 덮어쓸까요?')) return;
+        try { await post('/api/restore', { backup: b, parts }); m.style.color = 'var(--ok)'; m.textContent = '가져왔어요.';
+          setBrand(parts.includes('church') ? (b.church_name || '') : (await getSetup()).churchName); renderScenes.last = ''; loadScenes(); await loadSpeakers(); routeTabKey = ''; renderRouteTab(); if (lastData) drawFlow(lastData); }
+        catch (e) { m.style.color = 'var(--err)'; m.textContent = e.message; }
+      };
+    };
+  });
+}
+
+// ================= 설명서 → AI 참고 자료 =================
+let mnPoll = null;
+async function manualSection(box) {
+  if (!box) return;
+  let m;
+  try { m = await (await fetch('/api/manuals')).json(); } catch (e) { box.textContent = '불러오지 못했어요.'; return; }
+  const isWing = !m.consoleModel || /wing/i.test(m.consoleModel);
+  const running = m.job && m.job.state === 'running';
+  box.className = '';
+  box.innerHTML = `
+    <p>AI는 아래에서 고른 <b>설명서 요약</b>을 늘 참고해서 콘솔 사용법을 안내해요.
+      ${m.consoleModel ? `<br>지금 연결된 콘솔: <b>${esc(m.consoleModel)}</b>` : ''}</p>
+    ${!isWing ? `<div class="hintbox">이 콘솔은 WING 계열이 아니에요. 이 기종의 설명서를 넣으면 AI가 사용법은 맞게 안내하지만, 화면·AI의 직접 조작은 WING 계열에서만 돼요.</div>` : ''}
+    <div class="mnlist">${m.items.map(i => `
+      <div class="mnitem ${i.id === m.active ? 'on' : ''}">
+        <div class="grow"><b>${i.id === m.active ? '✅ ' : ''}${esc(i.title)}</b>
+          <div class="muted">${esc(i.model || '')}${i.pages ? ` · ${i.pages}쪽` : ''}${i.created ? ` · ${esc(i.created)} 만듦` : ''}</div></div>
+        <a class="btnlink sm" href="/api/manuals/view?id=${encodeURIComponent(i.id)}" target="_blank">보기</a>
+        ${i.id === m.active ? '<span class="muted sm">사용 중</span>' : `<button type="button" class="sm" data-use="${esc(i.id)}">이걸로 쓰기</button>`}
+        ${i.builtin ? '' : `<button type="button" class="sm danger" data-del="${esc(i.id)}">삭제</button>`}
+      </div>`).join('')}</div>
+    <hr class="sep">
+    <p><b>새 설명서 넣기</b> — 다른 기종이거나 새 판 설명서가 나왔을 때 써요.</p>
+    ${m.hasKey ? '' : '<div class="hintbox">이 기능은 Claude API 키가 필요해요 (🔑 API 키 탭).</div>'}
+    <label class="field">콘솔 모델 이름<input type="text" id="mnModel" maxlength="60" value="${esc(m.consoleModel ? 'Behringer ' + m.consoleModel : '')}" placeholder="예: Behringer X32, Yamaha TF5" autocomplete="off"></label>
+    <div class="mnways">
+      <div><b>방법 1.</b> 인터넷에서 공식 설명서 찾기<br>
+        <button type="button" id="mnSearch" ${m.hasKey && !running ? '' : 'disabled'}>🔍 찾기</button>
+        <span class="muted">(검색 요금 몇십 원)</span></div>
+      <div><b>방법 2.</b> 내려받아 둔 설명서 파일 올리기 (PDF, txt)<br>
+        <input type="file" id="mnFile" accept=".pdf,.txt,.md,application/pdf,text/plain" ${m.hasKey && !running ? '' : 'disabled'}></div>
+    </div>
+    <div id="mnFound"></div>
+    <div id="mnPrep"></div>
+    <div id="mnJob">${jobHtml(m.job)}</div>
+    <div class="ctlmsg" id="mnMsg"></div>`;
+  const msg = (t, err) => { const e = box.querySelector('#mnMsg'); e.style.color = err ? 'var(--err)' : 'var(--ok)'; e.textContent = t; };
+  const model = () => box.querySelector('#mnModel').value.trim();
+  box.querySelectorAll('[data-use]').forEach(b => b.onclick = async () => {
+    try { await post('/api/manuals/use', { id: b.dataset.use }); chatNeedsReload(); manualSection(box); toast('AI가 이제 이 설명서를 참고해요 (대화는 새로 시작)'); } catch (e) { msg(e.message, true); }
+  });
+  box.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+    if (!confirm('이 설명서 요약을 삭제할까요? (다시 만들려면 요금이 들어요)')) return;
+    try { await post('/api/manuals/delete', { id: b.dataset.del }); manualSection(box); } catch (e) { msg(e.message, true); }
+  });
+  const showPrep = p => {
+    const est = p.estimate ? `예상 요금 약 <b>${p.estimate.krw.toLocaleString()}원</b> ($${p.estimate.usd})` : '예상 요금을 계산하지 못했어요 (보통 설명서 한 권에 1천~3천 원)';
+    box.querySelector('#mnPrep').innerHTML = `<div class="hintbox ok">
+      <b>${esc(p.name)}</b> 을(를) 읽었어요 — ${p.pages ? `${p.pages}쪽, ` : ''}${p.scanned ? '스캔본(그림)이라 AI가 직접 봐요' : `글자 ${p.chars.toLocaleString()}자`}<br>
+      AI가 이 설명서를 읽고 봉사자용 참고 자료로 정리해요. 2~5분 걸리고 ${est}이 한 번 들어요.
+      <label class="field">자료 이름<input type="text" id="mnTitle" maxlength="80" value="${esc((model() || '콘솔') + ' 설명서 요약')}"></label>
+      <button type="button" class="primary" id="mnBuild">📖 AI 참고 자료 만들기</button></div>`;
+    box.querySelector('#mnBuild').onclick = async () => {
+      if (!model()) { box.querySelector('#mnModel').focus(); return msg('콘솔 모델 이름을 넣어 주세요.', true); }
+      try { await post('/api/manuals/build', { token: p.token, title: box.querySelector('#mnTitle').value, model: model() });
+        box.querySelector('#mnPrep').innerHTML = ''; pollJob(box); } catch (e) { msg(e.message, true); }
+    };
+  };
+  box.querySelector('#mnSearch').onclick = async ev => {
+    if (!model()) { box.querySelector('#mnModel').focus(); return msg('콘솔 모델 이름을 넣어 주세요.', true); }
+    const b = ev.target; b.disabled = true; b.textContent = '찾는 중… (30초~1분)'; msg('');
+    try {
+      const r = await post('/api/manuals/search', { model: model() });
+      const f = box.querySelector('#mnFound');
+      f.innerHTML = r.results.length ? `<p class="muted">찾은 설명서 (공식 사이트인지 주소를 확인하고 고르세요):</p>${r.results.map((x, i) => `
+        <div class="mnitem"><div class="grow"><b>${esc(x.title || '설명서')}</b> ${x.official ? '<span class="tag">공식</span>' : ''} <span class="muted">${esc(x.kind)}</span>
+          <div class="muted">${esc(x.host)} · ${esc(x.note)}</div></div>
+          <a class="btnlink sm" href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">열어 보기</a>
+          <button type="button" class="sm" data-fetch="${i}">이 파일 받기</button></div>`).join('')}`
+        : '<div class="hintbox">공식 설명서 PDF를 찾지 못했어요. 제조사 홈페이지에서 받아 ‘방법 2’로 올려 주세요.</div>';
+      f.querySelectorAll('[data-fetch]').forEach(btn => btn.onclick = async () => {
+        const x = r.results[+btn.dataset.fetch];
+        btn.disabled = true; btn.textContent = '받는 중…';
+        try { showPrep(await post('/api/manuals/fetch', { url: x.url, model: model() })); f.innerHTML = ''; }
+        catch (e) { msg(e.message + ' — ‘열어 보기’로 브라우저에서 내려받은 뒤 ‘방법 2’로 올려 주세요.', true); btn.disabled = false; btn.textContent = '이 파일 받기'; }
+      });
+    } catch (e) { msg(e.message, true); }
+    b.disabled = false; b.textContent = '🔍 찾기';
+  };
+  box.querySelector('#mnFile').onchange = async ev => {
+    const file = ev.target.files[0]; if (!file) return;
+    if (file.size > 80 * 1024 * 1024) return msg('파일이 너무 커요 (80 MB까지).', true);
+    msg('파일을 읽는 중…');
+    try {
+      const r = await fetch('/api/manuals/upload', { method: 'POST', body: file,
+        headers: { 'X-Filename': encodeURIComponent(file.name), 'X-Model': encodeURIComponent(model()) } });
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || '실패');
+      msg(''); showPrep(j);
+    } catch (e) { msg(e.message, true); }
+    ev.target.value = '';
+  };
+  if (running) pollJob(box);
+}
+function jobHtml(j) {
+  if (!j || j.state === 'idle') return '';
+  if (j.state === 'running') return `<div class="hintbox"><span class="spin"></span> <b>${esc(j.title || '')}</b> 만드는 중 — ${esc(j.step)} (${Math.floor(j.elapsed / 60)}분 ${j.elapsed % 60}초)<br><span class="muted">창을 닫아도 계속 만들어요.</span></div>`;
+  if (j.state === 'done') return `<div class="hintbox ok">✅ <b>${esc(j.title || '')}</b> 완성! AI가 이제 이 자료를 참고해요.${j.cost ? ` (든 요금 약 ${j.cost.krw.toLocaleString()}원)` : ''}</div>`;
+  return `<div class="hintbox err">만들지 못했어요: ${esc(j.error)}</div>`;
+}
+function pollJob(box) {
+  clearInterval(mnPoll);
+  mnPoll = setInterval(async () => {
+    if (!document.body.contains(box)) return clearInterval(mnPoll);
+    try {
+      const m = await (await fetch('/api/manuals')).json();
+      if (m.job.state === 'running') box.querySelector('#mnJob').innerHTML = jobHtml(m.job);
+      else { clearInterval(mnPoll); await manualSection(box); if (m.job.state === 'done') { chatNeedsReload(); toast('설명서 요약 완성!'); } }
+    } catch (e) {}
+  }, 2000);
+}
+
+// ================= 처음 설정 마법사 =================
+async function openWizard() {
+  let s;
+  try { s = await getSetup(); } catch (e) { return; }
+  if (!s.canEdit) return;
+  let step = 0;
+  const steps = ['콘솔 찾기', '교회 정보', 'AI 키', '완료'];
+  const render = () => {
+    const bar = `<div class="wzsteps">${steps.map((t, i) => `<span class="${i === step ? 'on' : i < step ? 'done' : ''}">${i < step ? '✓ ' : (i + 1) + '. '}${t}</span>`).join('')}</div>`;
+    let body = '', next = '다음';
+    if (step === 0) body = `<p>안녕하세요! <b>AI 콘솔메이트</b>를 이 교회에 맞게 설정해요. 4단계, 2~3분이면 끝나요.</p>
+        <p><b>1) 우리 교회 콘솔 연결</b> (Behringer WING 계열 또는 X32 / Midas M32 계열) — 콘솔과 이 PC가 같은 공유기(네트워크)에 연결되어 있어야 해요.</p>${consolePicker(s.wingIp)}
+        <p class="muted">콘솔이 없거나 나중에 하려면 그냥 ‘다음’을 누르세요 (자동으로 계속 찾아요). 콘솔 SETUP → REMOTE에서 원격 잠금(REMOTE LOCK)이 꺼져 있어야 해요.</p>`;
+    if (step === 1) body = `<p><b>2) 교회 정보</b></p>
+        <label class="field">교회 이름<input type="text" id="chName" maxlength="40" value="${esc(s.churchName)}" placeholder="예: OO교회" autocomplete="off"></label>
+        <label class="field">교회 음향 메모 <span class="muted">(선택 — 나중에 설정에서 써도 돼요)</span>
+          <textarea id="chNotes" rows="6" placeholder="${esc(NOTES_EXAMPLE)}" style="width:100%;margin-top:6px;font:inherit;padding:10px 12px;border-radius:12px;border:1px solid var(--line2);background:var(--bg);color:var(--text);resize:vertical">${esc(s.notes)}</textarea></label>
+        <p class="muted">메모에 적은 내용(버스 용도, 예배 습관)은 AI가 항상 참고해서 더 정확하게 도와줘요.</p>`;
+    if (step === 2) body = `<p><b>3) AI 대화용 Claude API 키</b> <span class="muted">(선택 — 없으면 흐름도·직접 조절·예배 순서만 써요)</span></p>${keySection(s)}`;
+    if (step === 3) { next = '시작하기'; body = `<p><b>✓ 준비됐어요!</b> 이렇게 써 보세요:</p>
+        <ul class="steps">
+          <li><b>흐름도</b> 탭: 악기 → 스피커로 소리가 어떻게 가는지. 상자를 누르면 직접 조절.</li>
+          <li><b>라우팅</b> 탭 맨 오른쪽 <b>🔊 스피커</b>를 눌러 실제 스피커 이름을 붙이세요 (예: A3 = 드럼 바닥 모니터).</li>
+          <li>위쪽 <b>예배 순서</b>: 콘솔을 찬양·설교 등에 맞춘 뒤 <b>＋ 지금 상태 저장</b>.</li>
+          <li>오른쪽 대화창: “드럼 모니터에 건반 조금 넣어줘”처럼 말로 요청.</li>
+        </ul><p class="muted">설정은 언제든 오른쪽 위 ⚙에서 바꿀 수 있어요.</p>`; }
+    openDialog(`<header><h3>처음 설정</h3>${bar}</header><div class="body">${body}<div class="ctlmsg" id="wzMsg"></div></div>
+      <footer>${step > 0 ? '<button id="wzBack" type="button">이전</button>' : '<button id="wzLater" type="button">나중에 하기</button>'}<span class="grow-sp"></span>
+        <button class="primary" id="wzNext" type="button">${next}</button></footer>`, d => {
+      if (step === 0) bindConsolePicker(d);
+      if (step === 2) bindKeySection(d, has => { s.hasKey = has; });
+      const back = d.querySelector('#wzBack'); if (back) back.onclick = () => { step--; render(); };
+      const later = d.querySelector('#wzLater'); if (later) later.onclick = () => closeDialog();
+      d.querySelector('#wzNext').onclick = async () => {
+        const m = d.querySelector('#wzMsg');
+        try {
+          if (step === 0) { const ip = d.querySelector('#cpIp').value.trim(); s.wingIp = ip; await saveConsole(ip); }
+          if (step === 1) { s.churchName = d.querySelector('#chName').value.trim(); s.notes = d.querySelector('#chNotes').value;
+            await post('/api/setup', { church_name: s.churchName, notes: s.notes }); setBrand(s.churchName); }
+          if (step === 3) { await post('/api/setup', { setup_done: true }); closeDialog(); chatNeedsReload(s.hasKey); return; }
+          step++; render();
+        } catch (e) { m.textContent = e.message; }
+      };
+    });
+  };
+  render();
+}
+
+$('settingsBtn').onclick = () => openSettings('church');
+$('routeUndoBtn').onclick = async () => {
+  if (!confirm('가장 최근의 라우팅 변경을 되돌릴까요?')) return;
+  const r = await routePost('/api/route/undo', {});
+  if (r.error) toast(r.error, true); else toast('라우팅을 되돌렸어요');
+  refreshAll();
+};
+routeState();
+$('aiPill').style.cursor = 'pointer';
+$('aiPill').onclick = () => openSettings('key');
+getSetup().then(s => { setBrand(s.churchName); if (!s.setupDone && s.canEdit) setTimeout(openWizard, 600); }).catch(() => {});
+
+// ================= 예배 순서 버튼 =================
+let scenes = { scenes: [], active: null, undo: null, scopeLabels: {}, scopeDefault: {} };
+const SCOPE_NOTE = {
+  mute: '어떤 마이크·악기를 켜고 끌지',
+  fader: '예배당(MAIN)으로 나가는 각 채널 크기',
+  sends: '주의: 예배 중 맞춘 찬양팀 모니터를 덮어쓸 수 있어요',
+  mains: 'YOUTUBE·CENTER로 보내는 양',
+  buses: '모니터 스피커 전체 볼륨과 뮤트',
+};
+function toast(msg, err = false) {
+  const el = $('toast');
+  el.textContent = msg; el.className = 'show' + (err ? ' err' : ''); el.style.pointerEvents = 'none';
+  clearTimeout(toast.t); toast.t = setTimeout(() => el.className = '', 3200);
+}
+async function post(path, body) {
+  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  const d = await r.json().catch(() => ({ error: '프로그램 응답 오류' }));
+  if (d.error) throw new Error(d.error);
+  return d;
+}
+async function loadScenes() {
+  try { scenes = await (await fetch('/api/scenes', { cache: 'no-store' })).json(); } catch (e) { return; }
+  renderScenes();
+}
+function renderScenes() {
+  const list = $('sceneList');
+  // 바뀐 것이 없으면 다시 그리지 않음 (누르는 순간 버튼이 바뀌어 클릭이 사라지는 것 방지)
+  const key = JSON.stringify([scenes.scenes, scenes.active, scenes.undo]);
+  if (key === renderScenes.last) return;
+  renderScenes.last = key;
+  if (!scenes.scenes.length) {
+    list.innerHTML = '<div class="sb-empty">아직 없어요. 콘솔을 예배 순서(예: 찬양)에 맞춘 뒤 오른쪽 <b>＋ 지금 상태 저장</b>을 누르세요.</div>';
+  } else {
+    list.innerHTML = scenes.scenes.map((s, i) => {
+      const st = s.diff === 0 ? '<span class="sc-state match">✓ 지금 상태</span>'
+        : s.diff == null ? '<span class="sc-state">확인 중</span>' : `<span class="sc-state">${s.diff}곳 다름</span>`;
+      return `<div class="scene ${s.id === scenes.active ? 'active' : ''}" style="--sc:${s.color || '#8b6cff'}" data-id="${s.id}">
+        <button class="sc-main" title="${esc(s.name)}(으)로 전환 (Alt+${i + 1})">
+          <span class="sc-num">${i + 1}</span><span><span class="sc-name">${esc(s.name)}</span>${st}</span></button>
+        <button class="sc-more" title="이름 바꾸기·다시 저장·삭제" aria-label="${esc(s.name)} 편집">⋯</button></div>`;
+    }).join('');
+    list.querySelectorAll('.scene').forEach(el => {
+      el.querySelector('.sc-main').onclick = () => openApply(el.dataset.id);
+      el.querySelector('.sc-more').onclick = () => openEdit(el.dataset.id);
+    });
+  }
+  const u = scenes.undo, ub = $('sceneUndo');
+  ub.hidden = !u;
+  if (u) { ub.textContent = `↶ 되돌리기`; ub.title = `'${u.scene}' 적용(${u.at}) 이전으로 되돌리기 · ${u.count}곳`; }
+}
+function openDialog(html, bind) {
+  const d = $('dlg');
+  d.innerHTML = `<form method="dialog" class="dlg">${html}</form>`;
+  // 글자 칸에서 Enter = 주 버튼(저장 등). 기본 동작은 첫 버튼(취소)이 눌려 창이 그냥 닫힘
+  d.querySelector('form').addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || e.target.tagName !== 'INPUT' || /^(checkbox|radio|button|submit|file)$/.test(e.target.type)) return;
+    e.preventDefault();
+    const p = d.querySelector('footer .primary:not([disabled])');
+    if (p && !d._enterBusy) { d._enterBusy = true; setTimeout(() => { d._enterBusy = false; p.click(); }, 60); }   // 한글 입력 마무리 후
+  });
+  bind && bind(d);
+  if (!d.open) d.showModal();
+  return d;
+}
+const closeDialog = () => $('dlg').open && $('dlg').close();
+
+async function openApply(id) {
+  const s = scenes.scenes.find(x => x.id === id); if (!s) return;
+  let p;
+  try { p = await post('/api/scenes/preview', { id }); } catch (e) { return toast(e.message, true); }
+  const n = p.changes.length;
+  openDialog(`
+    <header><h3>‘${esc(s.name)}’(으)로 전환할까요?</h3>
+      <p>${n ? `${n}곳이 바뀝니다. 페이더는 1초 동안 부드럽게 움직여요.` : '이미 이 상태입니다. 바뀔 것이 없어요.'}</p></header>
+    <div class="body">${n ? `<ul class="chg">${p.changes.map(c => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}</div>
+    <footer>
+      ${n ? '<label class="opt" style="padding:4px 6px"><input type="checkbox" id="smooth" checked><span>부드럽게 전환</span></label>' : ''}
+      <span class="grow-sp"></span>
+      <button value="cancel">${n ? '취소' : '닫기'}</button>
+      ${n ? '<button class="primary" id="go" value="">전환하기</button>' : ''}
+    </footer>`, d => {
+    const go = d.querySelector('#go'); if (!go) return;
+    go.onclick = async ev => {
+      ev.preventDefault(); go.disabled = true; go.textContent = '전환 중…';
+      try {
+        const r = await post('/api/scenes/apply', { id, smooth: d.querySelector('#smooth').checked });
+        closeDialog(); toast(`‘${s.name}’(으)로 전환했어요 · ${r.changed}곳`);
+      } catch (e) { go.disabled = false; go.textContent = '전환하기'; toast(e.message, true); }
+      lastControlAt = Date.now(); loadRouting(); loadScenes();
+    };
+    setTimeout(() => go.focus(), 30);
+  });
+}
+
+function scopeOptions(scope) {
+  return Object.keys(scenes.scopeLabels).map(k => `
+    <label class="opt"><input type="checkbox" name="scope" value="${k}" ${scope[k] ? 'checked' : ''}>
+      <span>${esc(scenes.scopeLabels[k])}<small>${esc(SCOPE_NOTE[k] || '')}</small></span></label>`).join('');
+}
+function readScope(d) {
+  const sc = {}; d.querySelectorAll('input[name=scope]').forEach(i => sc[i.value] = i.checked); return sc;
+}
+function openSave() {
+  const suggestions = ['예배 전', '찬양', '설교', '기도회', '광고 영상', '축도'].filter(n => !scenes.scenes.some(s => s.name === n));
+  openDialog(`
+    <header><h3>지금 콘솔 상태를 예배 순서로 저장</h3>
+      <p>지금 콘솔에 맞춰져 있는 상태를 버튼으로 만들어요. 나중에 누르면 이 상태로 돌아옵니다.</p></header>
+    <div class="body">
+      <label class="field">이름<input type="text" id="nm" maxlength="30" placeholder="예: 설교" autocomplete="off"></label>
+      ${suggestions.length ? `<div class="chips">${suggestions.map(n => `<span role="button" tabindex="0" data-n="${esc(n)}" style="cursor:pointer">${esc(n)}</span>`).join('')}</div>` : ''}
+      <div class="muted" style="margin:6px 0 2px">무엇을 담을까요?</div>
+      ${scopeOptions(scenes.scopeDefault)}
+      <div class="muted" style="margin:8px 4px">MAIN(예배당) 뮤트는 안전을 위해 담지 않아요.</div>
+    </div>
+    <footer><button value="cancel">취소</button><button class="primary" id="sv" value="">저장</button></footer>`, d => {
+    const nm = d.querySelector('#nm');
+    d.querySelectorAll('.chips span').forEach(c => c.onclick = c.onkeydown = e => { if (e.type === 'click' || e.key === 'Enter') { nm.value = c.dataset.n; nm.focus(); } });
+    d.querySelector('#sv').onclick = async ev => {
+      ev.preventDefault();
+      const name = nm.value.trim(); if (!name) { nm.focus(); return toast('이름을 입력해 주세요.', true); }
+      if (scenes.scenes.some(s => s.name === name) && !confirm(`‘${name}’이(가) 이미 있어요. 지금 상태로 덮어쓸까요?`)) return;
+      try { const r = await post('/api/scenes/save', { name, scope: readScope(d) }); closeDialog(); toast(`‘${name}’ 저장 · ${r.count}개 항목`); }
+      catch (e) { toast(e.message, true); }
+      loadScenes();
+    };
+    setTimeout(() => nm.focus(), 30);
+  });
+}
+function openEdit(id) {
+  const i = scenes.scenes.findIndex(x => x.id === id), s = scenes.scenes[i]; if (!s) return;
+  const what = Object.keys(s.scope || {}).filter(k => s.scope[k]).map(k => scenes.scopeLabels[k]).join(', ');
+  openDialog(`
+    <header><h3>‘${esc(s.name)}’ 편집</h3><p>담은 것: ${esc(what)} · ${s.count}개 항목 · 저장 ${esc(s.updated || '')}</p></header>
+    <div class="body">
+      <label class="field">이름<input type="text" id="nm" maxlength="30" value="${esc(s.name)}" autocomplete="off"></label>
+      <div class="muted" style="margin:6px 0 2px">‘지금 상태로 다시 저장’할 때 담을 것</div>
+      ${scopeOptions(s.scope || scenes.scopeDefault)}
+    </div>
+    <footer>
+      <button class="danger" id="del" value="">삭제</button>
+      <button id="left" value="" ${i === 0 ? 'disabled' : ''} title="왼쪽으로">←</button>
+      <button id="right" value="" ${i === scenes.scenes.length - 1 ? 'disabled' : ''} title="오른쪽으로">→</button>
+      <span class="grow-sp"></span>
+      <button id="resave" value="">지금 상태로 다시 저장</button>
+      <button class="primary" id="ren" value="">이름 저장</button>
+    </footer>`, d => {
+    const act = (sel, fn) => d.querySelector(sel).onclick = async ev => { ev.preventDefault(); try { await fn(); } catch (e) { toast(e.message, true); } loadScenes(); };
+    act('#ren', async () => { await post('/api/scenes/rename', { id, name: d.querySelector('#nm').value }); closeDialog(); toast('이름을 바꿨어요'); });
+    act('#resave', async () => {
+      if (!confirm(`‘${s.name}’을(를) 지금 콘솔 상태로 덮어쓸까요?`)) return;
+      const r = await post('/api/scenes/save', { id, name: d.querySelector('#nm').value || s.name, scope: readScope(d) });
+      closeDialog(); toast(`‘${s.name}’을(를) 지금 상태로 다시 저장 · ${r.count}개 항목`);
+    });
+    act('#del', async () => { if (!confirm(`‘${s.name}’ 버튼을 삭제할까요? (콘솔에는 영향 없음)`)) return; await post('/api/scenes/delete', { id }); closeDialog(); toast('삭제했어요'); });
+    act('#left', async () => { await post('/api/scenes/move', { id, delta: -1 }); closeDialog(); });
+    act('#right', async () => { await post('/api/scenes/move', { id, delta: 1 }); closeDialog(); });
+  });
+}
+$('sceneAdd').onclick = openSave;
+$('sceneUndo').onclick = async () => {
+  const u = scenes.undo; if (!u) return;
+  if (!confirm(`‘${u.scene}’을(를) 적용하기 전 상태로 되돌릴까요? (${u.count}곳)`)) return;
+  try { await post('/api/scenes/undo'); toast('되돌렸어요'); } catch (e) { toast(e.message, true); }
+  lastControlAt = Date.now(); loadRouting(); loadScenes();
+};
+// 단축키: Alt + 숫자 → 그 순서의 미리보기 열기
+document.addEventListener('keydown', e => {
+  if (!e.altKey || e.ctrlKey || e.metaKey || $('dlg').open) return;
+  const n = parseInt(e.key, 10);
+  if (n >= 1 && n <= 9 && scenes.scenes[n - 1]) { e.preventDefault(); openApply(scenes.scenes[n - 1].id); }
+});
+loadScenes();
+setInterval(() => { if (!document.hidden && !$('dlg').open) loadScenes(); }, 3000);
+
+let autoTimer = null;
+fetch('/api/status').then(r => r.json()).then(s => {
+  if (!s.ai) { document.querySelector('.chat').innerHTML = GUIDE; $('guideKey').onclick = () => openSettings('key'); }
+  // 콘솔에서 직접 바꾼 것도 화면에 반영되도록 2.5초마다 다시 읽음
+  // (슬라이더를 움직이는 중이거나 방금 조절한 직후에는 잠시 쉼)
+  autoTimer = setInterval(() => {
+    const busy = interacting || Date.now() - lastControlAt < 2000;
+    if (!document.hidden && !$('refresh').disabled && !busy) loadRouting(true);
+  }, 2500);
+}).catch(() => {});
+loadRouting();
+</script>
+</body>
+</html>
