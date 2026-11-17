@@ -15,7 +15,7 @@ FILES = [
     "app.py", "wing_osc.py", "wing_tools.py", "scenes.py", "speakers.py", "manuals.py", "consoles.py", "x32_osc.py",
     "wing_simulator.py", "x32_simulator.py", "wing_mcp.py",
     "wing_knowledge.md", "index.html", "requirements.txt", "start.bat", "install.bat", "실행.bat",
-    "테스트(콘솔없이).bat", "README.md",
+    "테스트(콘솔없이).bat", "README.md", "LICENSE",
 ]
 NEVER = {"config.json", "scenes.json", "speakers.json"}     # 교회별 정보 — 절대 넣지 않음
 
