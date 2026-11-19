@@ -236,16 +236,41 @@ class Health:
         self.net_ok = None
 
     def _discover(self):
-        """콘솔을 다시 찾음 (10초에 한 번까지). 찾으면 새 주소로 바꿈."""
-        if self.fixed_ip or time.time() - self.last_discover < 10:
+        """콘솔을 다시 찾음 (10초에 한 번까지). 찾으면 새 주소로 바꿈.
+
+        IP를 직접 정해 둔 경우에도, 그 IP에서 답이 없으면 같은 콘솔(이름·일련번호가 같거나,
+        네트워크에 실제 콘솔이 하나뿐)을 찾아 새 IP로 옮기고 설정도 고칩니다.
+        (공유기가 콘솔 IP를 바꾸는 경우 — 예: .54 → .58)"""
+        if time.time() - self.last_discover < 10:
             return
         self.last_discover = time.time()
         # 실제 콘솔을 가짜(연습용, 127.0.0.1)보다 먼저 고름
         found = sorted(discover(timeout=1.2), key=lambda f: f["ip"].startswith("127."))
         if not found:
             return
-        ip = found[0]["ip"]
-        fam = found[0].get("family", "wing")
+        pick = found[0]
+        if self.fixed_ip:
+            cfg = (getattr(self, "state", None) or {}).get("cfg") or {}
+            serial, name = cfg.get("console_serial") or "", cfg.get("console_name") or ""
+            fam_now = self.a.tools.family if self.a.tools else None
+            same = [f for f in found if (serial and f.get("serial") == serial) or (not serial and name and f.get("name") == name)]
+            real = [f for f in found if not f["ip"].startswith("127.") and (fam_now is None or f.get("family") == fam_now)]
+            if same:
+                pick = same[0]
+            elif not self.fixed_ip.startswith("127.") and len(real) == 1:
+                pick = real[0]
+            else:
+                return      # 어느 콘솔인지 확실하지 않으면 바꾸지 않음
+            if pick["ip"] == self.fixed_ip:
+                return
+            print(f"콘솔 IP가 바뀌었습니다: {self.fixed_ip} → {pick['ip']} (설정도 고칩니다)")
+            self.fixed_ip = pick["ip"]
+            new_cfg = update_config(wing_ip=pick["ip"], console_serial=pick.get("serial", ""), console_name=pick.get("name", ""))
+            if getattr(self, "state", None) is not None:
+                self.state["cfg"] = new_cfg
+            self.moved = {"from": cfg.get("wing_ip", ""), "to": pick["ip"], "at": time.time()}
+        ip = pick["ip"]
+        fam = pick.get("family", "wing")
         if self.a.tools is None or self.a.tools.family != fam:
             self.a.tools = consoles.open_console(ip, fam)
         elif self.a.tools.w.host != ip:
@@ -303,6 +328,10 @@ class Health:
                     if self.fails >= 2:
                         self._discover()
                         console["ip"] = self.a.tools.w.host
+            moved = getattr(self, "moved", None)
+            if moved and time.time() - moved["at"] < 120 and console["state"] != "down":
+                warnings.append({"level": "good", "text": f"콘솔 IP가 바뀌어({moved['from']} → {moved['to']}) 자동으로 다시 연결했습니다.",
+                                 "hint": "공유기가 콘솔 주소를 바꾼 것이에요. 설정도 새 주소로 고쳐 두었어요."})
             if console["state"] == "down":
                 warnings.insert(0, {"level": "err", "text": "콘솔과 통신이 끊겼습니다. 화면의 값이 실제와 다를 수 있습니다.",
                                     "hint": "확인 순서: ① 콘솔 전원 ② 콘솔 뒷면 랜선(공유기 연결) ③ 이 PC의 네트워크 ④ 콘솔 SETUP → REMOTE의 REMOTE LOCK. 다시 연결되면 자동으로 복구됩니다."})
@@ -687,6 +716,11 @@ def make_handler(assistant: Assistant, status: dict, health: "Health", state: di
                                 assistant.tools = consoles.open_console(target, fam)
                                 status["family"] = assistant.tools.family
                                 fields["console_family"] = assistant.tools.family
+                                # 같은 콘솔을 나중에 IP가 바뀌어도 알아볼 수 있게 이름·일련번호를 기억
+                                info = next((f for f in (found if not ip else discover(timeout=1.0)) if f["ip"] == target), None)
+                                if info:
+                                    fields["console_serial"] = info.get("serial", "")
+                                    fields["console_name"] = info.get("name", "")
                             health.fixed_ip = ip
                     if fields:
                         state["cfg"] = update_config(**fields)
@@ -737,8 +771,23 @@ def make_handler(assistant: Assistant, status: dict, health: "Health", state: di
     return Handler
 
 
+def already_running(port):
+    """이미 켜져 있으면 True (두 번 눌러 두 개가 뜨는 것을 막음)."""
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/status", timeout=2) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
 def main():
     cfg = load_config()
+    port = int(cfg.get("web_port") or 8800)
+    if already_running(port):
+        print("AI 콘솔메이트가 이미 켜져 있습니다. 화면만 다시 엽니다.")
+        webbrowser.open(f"http://localhost:{port}")
+        return
     key = (cfg.get("anthropic_api_key") or os.environ.get("ANTHROPIC_API_KEY") or "").strip()
     if anthropic is None:
         key = ""
@@ -759,9 +808,17 @@ def main():
     assistant = Assistant(anthropic.Anthropic(api_key=key) if key else None, wing)
     assistant.system_text = build_system(cfg)
     host = "0.0.0.0" if cfg.get("allow_other_devices") else "127.0.0.1"
-    port = int(cfg.get("web_port") or 8800)
     health = Health(assistant, cfg, status, bool(key))
-    server = ThreadingHTTPServer((host, port), make_handler(assistant, status, health, {"key": key, "cfg": cfg}))
+    state = {"key": key, "cfg": cfg}
+    health.state = state
+    # Windows 에서는 기본 설정이면 같은 포트를 두 프로그램이 함께 열 수 있어 막아 둠
+    ThreadingHTTPServer.allow_reuse_address = False
+    try:
+        server = ThreadingHTTPServer((host, port), make_handler(assistant, status, health, state))
+    except OSError:
+        print(f"{port} 번 포트를 이미 다른 프로그램이 쓰고 있습니다. AI 콘솔메이트가 이미 켜져 있다면 화면만 엽니다.")
+        webbrowser.open(f"http://localhost:{port}")
+        return
     url = f"http://localhost:{port}"
     print(f"AI 콘솔메이트 실행 중: {url}  (종료: Ctrl+C)")
     if cfg.get("open_browser", True):
