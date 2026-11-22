@@ -25,6 +25,7 @@ from wing_tools import TOOLS, NeedConfirm, ToolError, WingTools
 from scenes import STORE, SCOPE_DEFAULT, SCOPE_LABELS
 import speakers
 import manuals
+import gemini
 
 HERE = Path(__file__).parent
 MODEL = "claude-opus-5-5"
@@ -94,6 +95,29 @@ def build_system(cfg):
     return SYSTEM_PROMPT + extra
 
 
+def ai_provider(cfg):
+    """쓸 AI 회사. 설정에 정해 두면 그것만 씀(고정) — 다른 회사로 자동으로 바뀌지 않음."""
+    p = (cfg.get("ai_provider") or "").strip()
+    if p in ("google", "anthropic"):
+        return p
+    return "google" if cfg.get("google_api_key") else "anthropic"
+
+
+def make_ai_client(cfg):
+    """(client, key, provider). 키가 없으면 client=None (보기 전용)."""
+    p = ai_provider(cfg)
+    if p == "google":
+        key = (cfg.get("google_api_key") or "").strip()
+        return (gemini.GeminiClient(key, cfg.get("google_model") or "") if key else None), key, p
+    key = (cfg.get("anthropic_api_key") or os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+    if anthropic is None:
+        key = ""
+    return (anthropic.Anthropic(api_key=key) if key else None), key, p
+
+
+PROVIDER_LABEL = {"google": "Google AI Studio (Gemini)", "anthropic": "Claude (Anthropic)"}
+
+
 def key_hint(key: str):
     return "" if not key else (key[:7] + "…" + key[-4:] if len(key) > 14 else "설정됨")
 
@@ -146,6 +170,7 @@ class Assistant:
         self.tools = tools
         self.system_text = SYSTEM_PROMPT
         self.messages = []
+        self.g_history = []      # Google(Gemini) 대화 기록
         self.lock = threading.Lock()
         # 마지막 AI 요청 결과 (상태 표시용)
         self.ai_ok = None
@@ -161,10 +186,24 @@ class Assistant:
     def reset(self):
         with self.lock:
             self.messages = []
+            self.g_history = []
+
+    def _system(self):
+        return self.system_text + ("\n\n" + consoles.console_note(self.tools) if self.tools is not None and self.tools.family != "wing" else "")
+
+    def _run_tool(self, name, args):
+        if self.tools is None:
+            return "WING 콘솔에 연결되어 있지 않습니다. 콘솔 IP 설정을 확인하세요.", True
+        return self.tools.run(name, args if isinstance(args, dict) else {})
 
     def _chat(self, user_text: str):
         if self.client is None:
-            return {"reply": "API 키가 없어 이 화면에서는 대화할 수 없습니다. Claude 앱 대화창에서 요청해 주세요.", "actions": []}
+            return {"reply": "API 키가 없어 이 화면에서는 대화할 수 없습니다. ⚙ 설정 → API 키에서 키를 넣어 주세요.", "actions": []}
+        if getattr(self.client, "provider", "") == "google":
+            with self.lock:
+                if len(self.g_history) > 80:        # 너무 길어지면 앞부분 정리
+                    self.g_history = []
+                return gemini.chat(self.client, self._system(), self.g_history, TOOLS, self._run_tool, user_text)
         with self.lock:
             actions = []
             self.messages.append({"role": "user", "content": user_text})
@@ -177,7 +216,7 @@ class Assistant:
                         fallbacks="default",
                         output_config={"effort": "low"},
                         cache_control={"type": "ephemeral"},
-                        system=self.system_text + ("\n\n" + consoles.console_note(self.tools) if self.tools is not None and self.tools.family != "wing" else ""),
+                        system=self._system(),
                         tools=TOOLS,
                         messages=self.messages,
                     )
@@ -283,7 +322,8 @@ class Health:
         if time.time() - self.net_checked > 30:
             self.net_checked = time.time()
             try:
-                socket.create_connection(("api.anthropic.com", 443), timeout=2).close()
+                host = gemini.HOST if getattr(self.a.client, "provider", "") == "google" else "api.anthropic.com"
+                socket.create_connection((host, 443), timeout=2).close()
                 self.net_ok = True
             except OSError:
                 self.net_ok = False
@@ -350,7 +390,7 @@ class Health:
                     warnings.append({"level": "warn", "text": f"AI 대화에 문제가 있습니다: {self.a.ai_error}",
                                      "hint": "API 키가 문제라면 config.json을 확인하고 프로그램을 다시 켜 주세요."})
                 else:
-                    ai = {"state": "ok", "message": "준비됨"}
+                    ai = {"state": "ok", "message": ("Gemini" if getattr(self.a.client, "provider", "") == "google" else "Claude") + " 준비됨"}
             ago = None if self.last_ok is None else round(time.time() - self.last_ok, 1)
             return {"console": console, "ai": ai, "warnings": warnings, "last_ok_sec_ago": ago}
 
@@ -475,7 +515,12 @@ def make_handler(assistant: Assistant, status: dict, health: "Health", state: di
             elif self.path == "/api/speakers":
                 self._json({"speakers": speakers.load(), "types": {k: {"icon": v[0], "label": v[1]} for k, v in speakers.TYPES.items()}})
             elif self.path == "/api/settings":
+                cfg = state["cfg"]
                 self._json({"hasKey": bool(state["key"]), "keyHint": key_hint(state["key"]),
+                            "provider": ai_provider(cfg), "providerLabel": PROVIDER_LABEL[ai_provider(cfg)],
+                            "googleModel": cfg.get("google_model", ""),
+                            "keys": {"google": key_hint(cfg.get("google_api_key", "")),
+                                     "anthropic": key_hint(cfg.get("anthropic_api_key", ""))},
                             "canEdit": self._is_local(), "sdk": anthropic is not None})
             elif self.path == "/api/manuals":
                 cfg = state["cfg"]
@@ -552,6 +597,11 @@ def make_handler(assistant: Assistant, status: dict, health: "Health", state: di
             needs_ai = act in ("search", "build")
             if needs_ai and client is None:
                 return self._json({"error": "이 기능은 Claude API 키가 필요합니다. ⚙ 설정 → API 키에서 넣어 주세요."}, 400)
+            if getattr(client, "provider", "") == "google":
+                if needs_ai:
+                    return self._json({"error": "설명서 찾기·요약 만들기는 지금 Claude(Anthropic)로만 됩니다. "
+                                                "Google 고정 상태에서는 이미 만든 설명서 요약을 고르거나 보기만 할 수 있어요."}, 400)
+                client = None       # 파일 읽기는 되고, 요금 계산만 생략
 
             def use(mid):
                 state["cfg"] = update_config(knowledge=mid)
@@ -629,24 +679,53 @@ def make_handler(assistant: Assistant, status: dict, health: "Health", state: di
             elif self.path == "/api/settings":
                 if not self._is_local():
                     return self._json({"error": "API 키는 이 프로그램이 켜진 컴퓨터에서만 바꿀 수 있습니다."}, 403)
-                if anthropic is None:
-                    return self._json({"error": "AI 기능 부품(anthropic)이 설치되어 있지 않습니다. 실행.bat 으로 다시 켜 주세요."}, 500)
-                key = str(data.get("anthropic_api_key", "")).strip().strip('"').strip("'")
-                if key and (not key.startswith("sk-ant-") or len(key) < 30 or any(c.isspace() for c in key)):
-                    return self._json({"error": "API 키는 sk-ant- 로 시작하는 긴 글자입니다. 다시 복사해 붙여 넣어 주세요."}, 400)
-                if key:
-                    result, msg = test_api_key(key)
-                    if result == "bad":
-                        return self._json({"error": msg}, 400)
+                # provider: "google" | "anthropic" — 고른 회사로 고정해 저장 (자동 전환 없음)
+                provider = data.get("provider") or ("anthropic" if "anthropic_api_key" in data else ai_provider(state["cfg"]))
+                if provider not in ("google", "anthropic"):
+                    return self._json({"error": "알 수 없는 AI 종류입니다."}, 400)
+                raw = data.get("key", data.get("anthropic_api_key"))
+                key = None if raw is None else str(raw).strip().strip('"').strip("'")
+                fields = {"ai_provider": provider}
+                result, msg = "ok", f"{PROVIDER_LABEL[provider]}로 고정했습니다."
+                if provider == "google":
+                    if key:
+                        if not key.startswith("AIza") or len(key) < 30 or any(c.isspace() for c in key):
+                            return self._json({"error": "Google AI Studio 키는 AIza 로 시작하는 긴 글자입니다. 다시 복사해 붙여 넣어 주세요."}, 400)
+                        result, msg, model = gemini.test_key(key)
+                        if result == "bad":
+                            return self._json({"error": msg}, 400)
+                        fields["google_api_key"] = key
+                        if model:
+                            fields["google_model"] = model
+                    elif key == "":
+                        fields["google_api_key"] = ""
+                        result, msg = "removed", "Google 키를 지웠습니다. 이제 보기 전용으로 동작합니다."
                 else:
-                    result, msg = "removed", "API 키를 지웠습니다. 이제 보기 전용으로 동작합니다."
-                save_api_key(key)
-                state["key"] = key
-                assistant.client = anthropic.Anthropic(api_key=key) if key else None
+                    if anthropic is None:
+                        return self._json({"error": "AI 기능 부품(anthropic)이 설치되어 있지 않습니다. 실행.bat 으로 다시 켜 주세요."}, 500)
+                    if key:
+                        if not key.startswith("sk-ant-") or len(key) < 30 or any(c.isspace() for c in key):
+                            return self._json({"error": "Claude API 키는 sk-ant- 로 시작하는 긴 글자입니다. 다시 복사해 붙여 넣어 주세요."}, 400)
+                        result, msg = test_api_key(key)
+                        if result == "bad":
+                            return self._json({"error": msg}, 400)
+                        fields["anthropic_api_key"] = key
+                    elif key == "":
+                        fields["anthropic_api_key"] = ""
+                        result, msg = "removed", "Claude 키를 지웠습니다. 이제 보기 전용으로 동작합니다."
+                state["cfg"] = update_config(**fields)
+                client, active_key, _ = make_ai_client(state["cfg"])
+                if client is None and result == "ok":
+                    result, msg = "nokey", f"{PROVIDER_LABEL[provider]}로 고정했지만 키가 없습니다. 키를 넣어 주세요."
+                state["key"] = active_key
+                assistant.client = client
+                assistant.reset()
                 assistant.ai_ok, assistant.ai_error = None, ""
-                health.has_key = bool(key)
-                status["ai"] = bool(key)
-                self._json({"ok": True, "result": result, "message": msg, "keyHint": key_hint(key)})
+                health.has_key = bool(active_key)
+                status["ai"] = bool(active_key)
+                status["provider"] = provider
+                self._json({"ok": True, "result": result, "message": msg, "keyHint": key_hint(active_key),
+                            "provider": provider, "googleModel": state["cfg"].get("google_model", "")})
             elif self.path.startswith("/api/route/"):
                 t = assistant.tools
                 if t is None:
@@ -788,14 +867,13 @@ def main():
         print("AI 콘솔메이트가 이미 켜져 있습니다. 화면만 다시 엽니다.")
         webbrowser.open(f"http://localhost:{port}")
         return
-    key = (cfg.get("anthropic_api_key") or os.environ.get("ANTHROPIC_API_KEY") or "").strip()
-    if anthropic is None:
-        key = ""
+    ai_client, key, provider = make_ai_client(cfg)
     wing, where = connect_wing(cfg)
-    status = {"connected": wing is not None, "wing": where, "ai": bool(key),
+    status = {"connected": wing is not None, "wing": where, "ai": bool(key), "provider": provider,
               "family": wing.family if wing is not None else "wing"}
+    print(f"AI: {PROVIDER_LABEL[provider]} (고정)")
     if not key:
-        print("API 키가 없어 '보기 전용'으로 실행합니다. 대화를 쓰려면 config.json 에 API 키를 넣고 다시 실행하세요.")
+        print("API 키가 없어 '보기 전용'으로 실행합니다. 대화를 쓰려면 ⚙ 설정 → API 키에서 키를 넣어 주세요.")
     if wing is not None:
         try:
             wing.w.get("/ch/1/name")
@@ -805,7 +883,7 @@ def main():
             status["wing"] = f"{where} (응답 없음)"
             print(f"경고: {where} 에서 응답이 없습니다. 콘솔 IP 와 OSC 원격 설정을 확인하세요.")
 
-    assistant = Assistant(anthropic.Anthropic(api_key=key) if key else None, wing)
+    assistant = Assistant(ai_client, wing)
     assistant.system_text = build_system(cfg)
     host = "0.0.0.0" if cfg.get("allow_other_devices") else "127.0.0.1"
     health = Health(assistant, cfg, status, bool(key))

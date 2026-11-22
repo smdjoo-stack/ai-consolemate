@@ -1045,7 +1045,7 @@ $('reset').addEventListener('click', async () => {
 
 const GUIDE = `<div class="head"><h2>대화 기능이 꺼져 있습니다</h2></div>
   <div class="guide">
-    <p>지금은 <b>보기 전용</b>입니다. 말로 요청하는 대화창을 쓰려면 Claude API 키가 필요합니다.</p>
+    <p>지금은 <b>보기 전용</b>입니다. 말로 요청하는 대화창을 쓰려면 AI API 키(Google AI Studio 또는 Claude)가 필요합니다.</p>
     <p><button class="primary" id="guideKey" type="button">🔑 API 키 넣기</button></p>
     <p class="muted">흐름도, 직접 조절, 예배 순서 버튼은 키 없이도 쓸 수 있어요.</p>
   </div>`;
@@ -1608,39 +1608,67 @@ async function saveConsole(ipValue) {
   return r;
 }
 
+const PROVIDERS = {
+  google: { label: 'Google AI Studio (Gemini)', prefix: 'AIza', ph: 'AIza...', url: 'https://aistudio.google.com/apikey', site: 'Google AI Studio의 API 키 페이지', make: '<b>API 키 만들기(Create API key)</b>' },
+  anthropic: { label: 'Claude (Anthropic)', prefix: 'sk-ant-', ph: 'sk-ant-...', url: 'https://console.anthropic.com/settings/keys', site: 'Claude Console의 API Keys 페이지', make: '<b>Create Key</b>' },
+};
 function keySection(s) {
-  return `<div class="keystate ${s.hasKey ? 'ok' : ''}" id="keyState">${s.hasKey ? '✓ API 키가 설정되어 있어요' : '아직 키가 없어요 (AI 대화 없이 보기·조절만 가능)'}</div>
-    <ol class="steps">
-      <li><a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Claude Console의 API Keys 페이지</a>에서 <b>Create Key</b>로 키를 만들어요.</li>
-      <li>만든 키(<code>sk-ant-</code>로 시작)를 붙여 넣고 <b>확인하고 저장</b>을 눌러요. 키 확인은 요금이 들지 않아요.</li>
-    </ol>
-    <span class="keyrow"><input type="password" id="keyIn" placeholder="sk-ant-..." autocomplete="off" spellcheck="false"
-      style="flex:1;font:inherit;padding:10px 12px;border-radius:12px;border:1px solid var(--line2);background:var(--bg);color:var(--text)">
-      <button id="keyShow" type="button">보기</button><button id="keySave" class="primary" type="button">확인하고 저장</button></span>
-    ${s.hasKey ? '<p><button class="danger mini" id="keyDel" type="button">키 지우기</button></p>' : ''}
-    <div class="ctlmsg" id="keyMsg" style="margin-top:8px"></div>
-    <div class="muted">키는 이 컴퓨터의 <code>config.json</code>에만 저장돼요. 비밀번호처럼 다른 사람에게 보여주지 마세요.</div>`;
+  // s.provider / s.keys 는 /api/settings 에서 채움 (bindKeySection)
+  return `<div id="keyBox"><div class="muted">불러오는 중…</div></div>`;
 }
-function bindKeySection(d, onSaved) {
-  const inp = d.querySelector('#keyIn'), msg = d.querySelector('#keyMsg'), save = d.querySelector('#keySave');
-  if (!inp) return;
-  d.querySelector('#keyShow').onclick = ev => { inp.type = inp.type === 'password' ? 'text' : 'password'; ev.target.textContent = inp.type === 'password' ? '보기' : '숨기기'; };
-  const submit = async value => {
-    save.disabled = true; msg.style.color = ''; msg.textContent = value ? '키를 확인하는 중…' : '';
-    try {
-      const r = await post('/api/settings', { anthropic_api_key: value });
-      msg.style.color = (r.result === 'ok' || r.result === 'removed') ? 'var(--ok)' : '#fbbf24';
-      msg.textContent = (r.result === 'ok' ? '✓ ' : '') + r.message;
-      d.querySelector('#keyState').textContent = value ? '✓ API 키가 설정되어 있어요' : '아직 키가 없어요';
-      checkHealth();
-      onSaved && onSaved(!!value);
-    } catch (e) { msg.style.color = 'var(--err)'; msg.textContent = e.message; }
-    save.disabled = false;
+async function bindKeySection(d, onSaved) {
+  const box = d.querySelector('#keyBox');
+  if (!box) return;
+  let st;
+  try { st = await (await fetch('/api/settings')).json(); } catch (e) { box.textContent = '불러오지 못했어요.'; return; }
+  let sel = st.provider || 'anthropic';
+  const render = () => {
+    const P = PROVIDERS[sel], hint = st.keys[sel];
+    box.innerHTML = `
+      <p><b>어느 AI를 쓸까요?</b> 고른 AI로 <b>고정</b>돼요. 다른 AI로 저절로 바뀌지 않아요.</p>
+      ${Object.entries(PROVIDERS).map(([k, v]) => `<label class="opt"><input type="radio" name="prov" value="${k}" ${k === sel ? 'checked' : ''}>
+        <span>${v.label} ${k === st.provider ? '<span class="tag" style="background:var(--ok)">지금 사용 중</span>' : ''}
+        <small>${st.keys[k] ? '키 저장됨 · ' + esc(st.keys[k]) : '키 없음'}${k === 'google' && st.googleModel ? ' · 모델 ' + esc(st.googleModel) : ''}</small></span></label>`).join('')}
+      <hr class="sep">
+      <ol class="steps">
+        <li><a href="${P.url}" target="_blank" rel="noopener">${P.site}</a>에서 ${P.make}로 키를 만들어요.</li>
+        <li>만든 키(<code>${P.prefix}</code>로 시작)를 붙여 넣고 <b>확인하고 저장</b>을 눌러요. 키 확인은 요금이 들지 않아요.</li>
+      </ol>
+      <span class="keyrow"><input type="password" id="keyIn" placeholder="${hint ? '저장된 키 그대로 쓰려면 비워 두세요' : P.ph}" autocomplete="off" spellcheck="false"
+        style="flex:1;font:inherit;padding:10px 12px;border-radius:12px;border:1px solid var(--line2);background:var(--bg);color:var(--text)">
+        <button id="keyShow" type="button">보기</button><button id="keySave" class="primary" type="button">${hint ? '저장 · 이 AI로 고정' : '확인하고 저장'}</button></span>
+      ${hint ? '<p><button class="danger mini" id="keyDel" type="button">이 키 지우기</button></p>' : ''}
+      <div class="ctlmsg" id="keyMsg" style="margin-top:8px"></div>
+      ${sel === 'google' ? '<div class="muted">Google 고정 중에는 설명서 찾기·요약 만들기가 꺼져요(Claude 전용). 이미 만든 요약은 그대로 쓸 수 있어요.</div>' : ''}
+      <div class="muted">키는 이 컴퓨터의 <code>config.json</code>에만 저장돼요. 비밀번호처럼 다른 사람에게 보여주지 마세요.</div>`;
+    const inp = box.querySelector('#keyIn'), msg = box.querySelector('#keyMsg'), save = box.querySelector('#keySave');
+    box.querySelectorAll('input[name=prov]').forEach(r => r.onchange = () => { sel = r.value; render(); });
+    box.querySelector('#keyShow').onclick = ev => { inp.type = inp.type === 'password' ? 'text' : 'password'; ev.target.textContent = inp.type === 'password' ? '보기' : '숨기기'; };
+    const submit = async value => {
+      save.disabled = true; msg.style.color = ''; msg.textContent = value ? '키를 확인하는 중…' : '';
+      try {
+        const body = { provider: sel }; if (value !== null) body.key = value;
+        const r = await post('/api/settings', body);
+        msg.style.color = (r.result === 'ok' || r.result === 'removed') ? 'var(--ok)' : '#fbbf24';
+        msg.textContent = (r.result === 'ok' ? '✓ ' : '') + r.message;
+        st = await (await fetch('/api/settings')).json();
+        setTimeout(render, 1500);
+        checkHealth();
+        onSaved && onSaved(!!st.hasKey);
+      } catch (e) { msg.style.color = 'var(--err)'; msg.textContent = e.message; }
+      save.disabled = false;
+    };
+    save.onclick = () => {
+      const v = inp.value.trim();
+      if (!v && !hint) { inp.focus(); msg.textContent = '키를 붙여 넣어 주세요.'; return; }
+      if (v && !v.startsWith(P.prefix)) { msg.style.color = 'var(--err)'; msg.textContent = `${P.label} 키는 ${P.prefix} 로 시작해요. 다른 회사의 키가 아닌지 확인해 주세요.`; return; }
+      submit(v || null);
+    };
+    inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); save.click(); } });
+    const del = box.querySelector('#keyDel');
+    if (del) del.onclick = () => { if (confirm(`${P.label} 키를 지울까요?`)) submit(''); };
   };
-  save.onclick = () => { const v = inp.value.trim(); if (!v) { inp.focus(); msg.textContent = '키를 붙여 넣어 주세요.'; return; } submit(v); };
-  inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); save.click(); } });
-  const del = d.querySelector('#keyDel');
-  if (del) del.onclick = () => { if (confirm('API 키를 지울까요? AI 대화를 쓸 수 없게 됩니다.')) submit(''); };
+  render();
 }
 function chatNeedsReload(hasKeyNow) {
   const hadChat = !!document.getElementById('t') && document.body.contains(document.getElementById('t'));
@@ -1858,7 +1886,7 @@ async function openWizard() {
         <label class="field">교회 음향 메모 <span class="muted">(선택 — 나중에 설정에서 써도 돼요)</span>
           <textarea id="chNotes" rows="6" placeholder="${esc(NOTES_EXAMPLE)}" style="width:100%;margin-top:6px;font:inherit;padding:10px 12px;border-radius:12px;border:1px solid var(--line2);background:var(--bg);color:var(--text);resize:vertical">${esc(s.notes)}</textarea></label>
         <p class="muted">메모에 적은 내용(버스 용도, 예배 습관)은 AI가 항상 참고해서 더 정확하게 도와줘요.</p>`;
-    if (step === 2) body = `<p><b>3) AI 대화용 Claude API 키</b> <span class="muted">(선택 — 없으면 흐름도·직접 조절·예배 순서만 써요)</span></p>${keySection(s)}`;
+    if (step === 2) body = `<p><b>3) AI 대화용 API 키 (Google AI Studio 또는 Claude)</b> <span class="muted">(선택 — 없으면 흐름도·직접 조절·예배 순서만 써요)</span></p>${keySection(s)}`;
     if (step === 3) { next = '시작하기'; body = `<p><b>✓ 준비됐어요!</b> 이렇게 써 보세요:</p>
         <ul class="steps">
           <li><b>흐름도</b> 탭: 악기 → 스피커로 소리가 어떻게 가는지. 상자를 누르면 직접 조절.</li>
