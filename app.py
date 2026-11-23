@@ -564,6 +564,14 @@ def make_handler(assistant: Assistant, status: dict, health: "Health", state: di
             elif self.path == "/api/tones":
                 import tones
                 self._json(tones.options())
+            elif self.path in ("/api/refsong", "/api/refsong/prompt"):
+                import refsong
+                last = state.get("refsong")
+                if self.path.endswith("/prompt"):
+                    if not last:
+                        return self._json({"error": "먼저 기준 노래를 분석해 주세요."}, 400)
+                    return self._json({"prompt": refsong.ai_prompt(last)})
+                self._json(last or {})
             elif self.path == "/api/comp":
                 import compressor
                 self._json(compressor.options())
@@ -685,6 +693,20 @@ def make_handler(assistant: Assistant, status: dict, health: "Health", state: di
                 if length > manuals.MAX_FILE:
                     return self._json({"error": "파일이 너무 큽니다(80 MB 초과)."}, 413)
                 return self._manuals_post({}, self.rfile.read(length))
+            if self.path == "/api/refsong/analyze":
+                if length > 150 * 1024 * 1024:
+                    return self._json({"error": "파일이 너무 큽니다(150 MB 초과)."}, 413)
+                from urllib.parse import unquote
+                blob = self.rfile.read(length)
+                try:
+                    import refsong
+                    r = refsong.analyze(blob, unquote(self.headers.get("X-Filename") or "노래"))
+                except ImportError:
+                    return self._json({"error": "음악 분석 부품(numpy, soundfile)이 없습니다. 프로그램을 다시 켜면 자동으로 설치됩니다."}, 500)
+                except ValueError as e:
+                    return self._json({"error": str(e)}, 400)
+                state["refsong"] = r
+                return self._json(r)
             try:
                 data = json.loads(self.rfile.read(length) or b"{}")
             except json.JSONDecodeError:

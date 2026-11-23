@@ -735,6 +735,10 @@ class WingTools:
                      for k in ("preins", "postins")}
         return d
 
+    def get_channel_detail(self, channel):
+        """AI 도구 이름(get_channel_detail) → 채널 상세 (이전에는 이 연결이 빠져 있어 AI가 상세를 못 봤음)"""
+        return self.channel_detail(channel)
+
     # 조절할 수 있는 항목: 키 → (주소 만들기, 종류, 최소, 최대, 한 번에 올려도 되는 최대 dB 또는 None)
     def _param_spec(self, ch, key):
         c = f"/ch/{ch}"

@@ -340,6 +340,24 @@
   body[data-fam="x32"] .x32only { display:block; }
   body[data-fam="x32"] .wingonly, body[data-fam="x32"] #viewRoute button.mini, body[data-fam="x32"] #routeOut,
   body[data-fam="x32"] #routeUndoBtn { display:none !important; }
+  .refup { display:flex; flex-direction:column; gap:8px; margin:6px 0 14px; }
+  .refdrop { display:flex; flex-direction:column; align-items:center; gap:6px; padding:26px 16px; border:2px dashed var(--line2); border-radius:16px; cursor:pointer; background: var(--raise); text-align:center; }
+  .refdrop:hover, .refdrop.over { border-color: var(--accent); }
+  .refcard { border:1px solid var(--line); border-radius:16px; padding:14px 16px; background: var(--raise); }
+  .refcard h4 { margin:0 0 8px; }
+  .refchart { width:100%; height:auto; display:block; margin:4px 0 10px; }
+  .refchart text { fill: var(--muted); font-size:11px; }
+  .refchart .cap { font-size:12px; }
+  .refchart line.grid { stroke: var(--line); stroke-width:1; }
+  .refchart line.zero { stroke: var(--line2); stroke-width:1.5; }
+  .refchart rect.up { fill: #f59e0b; }
+  .refchart rect.down { fill: #5b8cff; }
+  .refgroups { display:grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap:8px; margin-top:8px; }
+  .rg { border:1px solid var(--line); border-radius:12px; padding:8px 10px; display:flex; flex-direction:column; gap:2px; }
+  .rg span { font-weight:600; }
+  .rg small { color: var(--muted); font-size:12px; }
+  .rg.up { border-color:#f59e0b; } .rg.up span { color:#f59e0b; }
+  .rg.down { border-color:#5b8cff; } .rg.down span { color:#7aa2ff; }
   .voicecard { margin-bottom:12px; border-color: var(--accent); }
   .vtweaks { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:8px; }
   .vgroup { margin:10px 0; }
@@ -454,6 +472,7 @@
         <button data-view="cards">카드</button>
         <button data-view="fx">이펙트</button>
         <button data-view="route">라우팅</button>
+        <button data-view="ref">🎵 기준 노래</button>
       </div>
     </div>
     <div id="routeUndoBar" class="routebox" hidden style="margin:0 0 10px"><span></span><span class="grow"></span><button id="routeUndoBtn">↶ 라우팅 되돌리기</button></div>
@@ -471,6 +490,15 @@
         <p class="muted wingonly" style="margin-top:0">콘솔 ROUTING 화면과 같은 내용이에요. 각 줄의 <b>바꾸기</b>를 누르면 바뀔 내용을 먼저 보여 주고, 확인해야 적용돼요. ⚠ 예배 중에는 바꾸지 마세요.</p>
         <div class="hintbox x32only" style="margin-top:0">X32/M32: 어느 입력 단자가 어느 채널로 들어오는지만 보여 드려요. 단자 바꾸기와 출력 단자 보기는 아직 안 되니 콘솔의 ROUTING 화면에서 해 주세요.</div>
         <div id="routeTab"><div class="empty">불러오는 중…</div></div>
+      </div>
+      <div id="viewRef" hidden>
+        <p class="muted" style="margin-top:0">닮고 싶은 노래 파일을 올리면 소리 균형(저음·중음·고음)과 강약을 분석해서, 우리 콘솔에서 무엇을 바꾸면 비슷해지는지 알려 드려요. 콘솔은 바로 바뀌지 않아요.</p>
+        <div class="refup">
+          <label class="refdrop" id="refDrop"><input type="file" id="refFile" accept=".mp3,.wav,.flac,.ogg,audio/*" hidden>
+            <b>🎵 노래 파일 고르기</b><span class="muted">또는 여기로 끌어다 놓기 · MP3·WAV·FLAC·OGG · 10분까지</span></label>
+          <div class="muted" style="font-size:13px">💡 유튜브에서 내려받은 파일 대신, 가지고 있는 음원·MR·우리 예배 녹음을 쓰세요 (저작권·유튜브 약관).</div>
+        </div>
+        <div id="refOut"></div>
       </div>
       <div id="viewFx" hidden>
         <p class="muted" style="margin-top:0">콘솔 EFFECTS 화면의 16칸입니다. 어디에 끼워져 있는지와 섞는 양(효과음 비율)을 보고 조절할 수 있어요.</p>
@@ -882,12 +910,75 @@ function setView(v) {
   $('viewCards').hidden = v !== 'cards';
   $('viewFx').hidden = v !== 'fx';
   $('viewRoute').hidden = v !== 'route';
+  $('viewRef').hidden = v !== 'ref';
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('sel', b.dataset.view === v));
   try { localStorage.setItem('wingView', v); } catch (e) {}
   if (v === 'flow' && lastData) drawFlow(lastData);
   if (v === 'fx') { fxKey = ''; loadEffects(true); }
   if (v === 'route') { routeTabKey = ''; renderRouteTab(); routeState(); }
+  if (v === 'ref' && !refLoaded) { refLoaded = true; fetch('/api/refsong').then(r => r.json()).then(r => { if (r && r.bands) renderRef(r); }).catch(() => {}); }
 }
+// ================= 기준 노래 분석 =================
+var refLoaded = false;
+async function refUpload(file) {
+  if (!file) return;
+  if (file.size > 150 * 1024 * 1024) return toast('파일이 너무 커요 (150 MB까지).', true);
+  $('refOut').innerHTML = `<div class="hintbox"><span class="spin"></span> ‘${esc(file.name)}’ 분석하는 중… (보통 5~20초)</div>`;
+  try {
+    const r = await fetch('/api/refsong/analyze', { method: 'POST', body: file, headers: { 'X-Filename': encodeURIComponent(file.name) } });
+    const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || '분석 실패');
+    renderRef(j);
+  } catch (e) { $('refOut').innerHTML = `<div class="hintbox err">${esc(e.message)}</div>`; }
+}
+function refChart(bands) {
+  const W = 760, H = 220, L = 40, B = 30, T = 14, n = bands.length, bw = (W - L - 10) / n, rng = 12;
+  const y = v => T + (H - T - B) / 2 - Math.max(-rng, Math.min(rng, v)) / rng * (H - T - B) / 2;
+  const fmt = hz => hz >= 1000 ? (hz / 1000) + 'k' : String(hz);
+  let s = `<svg viewBox="0 0 ${W} ${H}" class="refchart" role="img" aria-label="보통 음원과 비교한 소리 균형">`;
+  [-12, -6, 0, 6, 12].forEach(v => s += `<line x1="${L}" x2="${W - 10}" y1="${y(v)}" y2="${y(v)}" class="${v === 0 ? 'zero' : 'grid'}"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${v > 0 ? '+' + v : v}</text>`);
+  bands.forEach((b, i) => {
+    const x = L + i * bw + 2, v = b.vsTypical, y0 = y(0), y1 = y(v);
+    s += `<rect x="${x}" y="${Math.min(y0, y1)}" width="${bw - 4}" height="${Math.max(1, Math.abs(y1 - y0))}" class="${v >= 0 ? 'up' : 'down'}"><title>${fmt(b.hz)} Hz: 보통 음원보다 ${v > 0 ? '+' : ''}${v} dB</title></rect>`;
+    if (i % 3 === 0) s += `<text x="${x + bw / 2 - 2}" y="${H - 10}" text-anchor="middle">${fmt(b.hz)}</text>`;
+  });
+  return s + `<text x="${L}" y="${T - 2}" class="cap">보통 음원보다 많음 ↑ / 적음 ↓ (dB)</text></svg>`;
+}
+function renderRef(r) {
+  const d = r.dynamics;
+  $('refOut').innerHTML = `
+    <div class="refcard">
+      <h4>🎵 ${esc(r.name)} <span class="muted">${Math.floor(r.seconds / 60)}분 ${r.seconds % 60}초</span></h4>
+      ${refChart(r.bands)}
+      <div class="refgroups">${r.groups.map(g => `<div class="rg ${g.word === '보통' ? '' : g.db > 0 ? 'up' : 'down'}"><b>${esc(g.name)}</b>
+        <span>${esc(g.word)} ${g.word === '보통' ? '' : (g.db > 0 ? '+' : '') + g.db + ' dB'}</span><small>${esc(g.range)} · ${esc(g.what)}</small></div>`).join('')}</div>
+      <div class="refgroups">
+        <div class="rg"><b>강약</b><span>${esc(d.word)}</span><small>크기 변화 폭 ${d.range_db} dB · 피크 여유 ${d.crest_db} dB</small></div>
+        <div class="rg"><b>스테레오</b><span>${esc(r.stereo.word)}</span><small>좌우로 퍼진 정도</small></div>
+      </div>
+      <h4 style="margin-top:14px">이 노래처럼 하려면 (방향)</h4>
+      <ul class="vwhy">${r.hints.map(h => `<li>${esc(h)}</li>`).join('')}</ul>
+      <p><button class="primary" id="refAsk">💬 AI에게 우리 콘솔 맞춤 제안 받기</button>
+        <span class="muted">지금 콘솔 상태를 보고 할 일을 순서대로 알려 줘요 (바로 바꾸지 않아요)</span></p>
+      <p class="muted" style="font-size:13px">녹음실 음원과 예배당은 마이크·악기·공간이 달라 똑같아지지는 않아요. 작은 변화부터, 꼭 귀로 확인하세요.</p>
+    </div>`;
+  $('refAsk').onclick = async () => {
+    const box = document.getElementById('t');
+    if (!box) return toast('AI 대화가 꺼져 있어요. ⚙ 설정 → 🔑 AI 연결에서 켜 주세요.', true);
+    const r2 = await (await fetch('/api/refsong/prompt')).json();
+    box.value = r2.prompt;
+    const send = document.getElementById('send') || box.form?.querySelector('button[type=submit]');
+    if (send) send.click(); else box.focus();
+    toast('AI에게 물어봤어요. 오른쪽 대화창을 보세요.');
+  };
+}
+(() => {
+  const f = $('refFile'), drop = $('refDrop');
+  if (!f) return;
+  f.onchange = () => { refUpload(f.files[0]); f.value = ''; };
+  ['dragover', 'dragenter'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', ev => refUpload(ev.dataTransfer.files[0]));
+})();
 document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
 try { setView(localStorage.getItem('wingView') || 'flow'); } catch (e) { setView('flow'); }
 
