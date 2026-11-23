@@ -49,6 +49,7 @@ SYSTEM_PROMPT = """당신은 교회 예배 음향을 돕는 'AI 콘솔메이트'
   "먹먹해요/안 들려요/쏘아요/얇아요" 같은 느낌은 voice_eq_tweak 으로 한 번에 하나씩 다듬으세요. 성별·나이·마이크 종류를 모르면 물어보세요.
 - 악기 톤(킥·베이스·어쿠스틱 기타·피아노 등)은 tone_preset 으로 시작점을 잡고, "이 톤 저장해 줘"는 tone_save,
   "1번 톤을 2번에도 똑같이"는 tone_preset(from_channel=1). 악기 채널도 voice_eq_tweak 의 다듬기·되돌리기를 쓸 수 있습니다.
+- 컴프(크기를 고르게)는 comp_preset(용도별 시작값) → comp_tweak("들쭉날쭉/답답/출렁…")으로. 76LA 같은 빈티지 모델은 set_dyn_raw.
 - '예배 순서' 버튼(찬양, 설교 등)은 list_scenes / save_scene / recall_scene 으로 다룹니다. 화면 위쪽 '예배 순서' 줄에서 사람이 직접 누를 수도 있습니다.
   전환은 사용자가 분명히 요청할 때만 하고, 무엇이 바뀌는지 궁금해하면 preview_only 로 먼저 보여 주세요.
 - 메인 출력(main 2~4, 예: CENTER, YOUTUBE 방송)에 보내는 양은 get_main_mix 로 현재 값을 확인한 뒤 set_main_send 로, MAIN(main 1, 예배당) 크기는 채널 페이더(set_fader)로 조절합니다.
@@ -563,6 +564,9 @@ def make_handler(assistant: Assistant, status: dict, health: "Health", state: di
             elif self.path == "/api/tones":
                 import tones
                 self._json(tones.options())
+            elif self.path == "/api/comp":
+                import compressor
+                self._json(compressor.options())
             elif self.path.startswith("/api/manuals/view"):
                 from urllib.parse import urlparse, parse_qs
                 mid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
@@ -869,6 +873,12 @@ def make_handler(assistant: Assistant, status: dict, health: "Health", state: di
                     elif act in ("tone_preview", "tone_apply"):
                         r = t.tone_preset(ch, preset=data.get("preset"), from_channel=data.get("from") or None,
                                           preview_only=(act == "tone_preview"))
+                    elif act in ("comp_preview", "comp_apply"):
+                        r = t.comp_preset(ch, data.get("preset"), preview_only=(act == "comp_preview"))
+                    elif act == "comp_tweak":
+                        r = t.comp_tweak(ch, data.get("kind"))
+                    elif act == "dynraw":
+                        r = t.set_dyn_raw(ch, str(data.get("param", "")), data.get("value"))
                     elif act == "tone_save":
                         r = t.tone_save(ch, data.get("name"))
                     elif act == "tone_delete":

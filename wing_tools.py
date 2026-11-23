@@ -94,6 +94,45 @@ TOOLS = [
         },
     },
     {
+        "name": "comp_preset",
+        "description": "채널 컴프(크기를 고르게 하는 장치)를 용도별 시작값으로 맞춥니다. preset: speech(말씀·설교·기도), vocal(찬양 보컬), "
+                       "gentle(살짝 자연스럽게), choir(성가대·그룹), agtr(어쿠스틱 기타), bass(베이스), kick(킥·드럼), limit(갑자기 큰 소리 막기). "
+                       "컴프 종류가 COMP(기본)일 때만 됩니다. preview_only=true 로 먼저 보여 줄 수 있고, 되돌리기는 voice_eq_tweak(undo=true).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "channel": {"type": "integer", "minimum": 1, "maximum": 40},
+                "preset": {"type": "string", "enum": ["speech", "vocal", "gentle", "choir", "agtr", "bass", "kick", "limit"]},
+                "preview_only": {"type": "boolean"},
+            },
+            "required": ["channel", "preset"],
+        },
+    },
+    {
+        "name": "comp_tweak",
+        "description": "들어 본 느낌대로 컴프를 조금 다듬습니다. kind: uneven(크기가 들쭉날쭉 → 더 누름), squashed(눌려서 답답 → 덜 누름), "
+                       "quiet(작아짐 → 보충 게인 +1), pumping(출렁거림 → 릴리즈 느리게), dull(첫소리가 죽음 → 어택 느리게), "
+                       "peaks(갑자기 튀는 소리 → 어택 빠르게·비율 올림). 한 번에 하나씩, 들어 보고 반복하세요.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "channel": {"type": "integer", "minimum": 1, "maximum": 40},
+                "kind": {"type": "string", "enum": ["uneven", "squashed", "quiet", "pumping", "dull", "peaks"]},
+            },
+            "required": ["channel", "kind"],
+        },
+    },
+    {
+        "name": "set_dyn_raw",
+        "description": "76LA 같은 빈티지 컴프 모델의 세부값을 바꿉니다(get_channel_detail 의 컴프 '세부값' 이름 그대로). "
+                       "예: 76LA 의 in(높일수록 많이 누름), out(출력), att, rel. 작은 폭으로 바꾸세요.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"channel": {"type": "integer", "minimum": 1, "maximum": 40}, "param": {"type": "string"}, "value": {"type": "number"}},
+            "required": ["channel", "param", "value"],
+        },
+    },
+    {
         "name": "tone_save",
         "description": "채널의 지금 톤(로우컷·EQ·컴프)을 이름 붙여 '우리 교회 톤'으로 저장합니다. 같은 이름이면 덮어씁니다. "
                        "저장한 톤은 tone_preset 의 preset 에 이름으로 쓸 수 있습니다.",
@@ -687,7 +726,10 @@ class WingTools:
         dyn = {"켜짐": bool(n(f"/ch/{ch}/dyn/on")), "종류": self._txt(f"/ch/{ch}/dyn/mdl") or ""}
         if dyn["종류"] in ("COMP", "EXP"):
             dyn.update({"문턱_dB": n(f"/ch/{ch}/dyn/thr"), "비율": n(f"/ch/{ch}/dyn/ratio"), "보충게인_dB": n(f"/ch/{ch}/dyn/gain"),
-                        "어택_ms": n(f"/ch/{ch}/dyn/att"), "릴리즈_ms": n(f"/ch/{ch}/dyn/rel")})
+                        "어택_ms": n(f"/ch/{ch}/dyn/att"), "릴리즈_ms": n(f"/ch/{ch}/dyn/rel"),
+                        "니": n(f"/ch/{ch}/dyn/knee"), "섞는양_%": n(f"/ch/{ch}/dyn/mix")})
+        elif dyn["종류"] and self.family == "wing":
+            dyn["세부값"] = self.dyn_raw_params(ch)
         d["컴프"] = dyn
         d["인서트"] = {k: {"켜짐": bool(n(f"/ch/{ch}/{k}/on")), "이펙트": self._txt(f"/ch/{ch}/{k}/ins") or "NONE"}
                      for k in ("preins", "postins")}
@@ -704,6 +746,7 @@ class WingTools:
             "dyn_on": (f"{c}/dyn/on", "b", 0, 1, None), "dyn_thr": (f"{c}/dyn/thr", "f", -60, 0, None),
             "dyn_ratio": (f"{c}/dyn/ratio", "f", 1.1, 100, None), "dyn_gain": (f"{c}/dyn/gain", "f", -6, 12, 6),
             "dyn_att": (f"{c}/dyn/att", "f", 0, 120, None), "dyn_rel": (f"{c}/dyn/rel", "f", 4, 4000, None),
+            "dyn_knee": (f"{c}/dyn/knee", "f", 0, 5, None), "dyn_mix": (f"{c}/dyn/mix", "f", 0, 100, None),
             "preins_on": (f"{c}/preins/on", "b", 0, 1, None), "postins_on": (f"{c}/postins/on", "b", 0, 1, None),
         }
         if key in simple:
@@ -1248,6 +1291,62 @@ class WingTools:
             raise ToolError("kind 를 골라 주세요.")
         try:
             r = voice_eq.tweak(self, channel, kind)
+        except ValueError as e:
+            raise ToolError(str(e))
+        self._voice_undo(channel).append(r.pop("undo"))
+        return r
+
+    # -------------------------------------------------- 컴프 (용도별 시작값·다듬기·빈티지 모델 세부값)
+    DYN_LABELS = {"in": "입력 (높일수록 많이 누름)", "out": "출력", "att": "어택", "rel": "릴리즈", "ratio": "비율", "gain": "게인",
+                  "mix": "섞는 양 %", "thr": "문턱", "knee": "니", "peak": "피크 리덕션", "comp": "컴프 양", "drive": "드라이브",
+                  "hpf": "사이드체인 로우컷", "lim": "리미트"}
+
+    def dyn_raw_params(self, ch):
+        """빈티지 컴프(76LA 등)의 세부값 — 콘솔에 있는 그대로 [이름, 값, 표시]"""
+        try:
+            names = self.w.get(f"/ch/{int(ch)}/dyn")
+        except TimeoutError:
+            return []
+        out = []
+        for p in names:
+            if p in ("on", "mdl") or p.startswith("$"):
+                continue
+            try:
+                args = self.w.get(f"/ch/{int(ch)}/dyn/{p}")
+            except TimeoutError:
+                continue
+            num = number_of(args)
+            out.append({"이름": p, "설명": self.DYN_LABELS.get(p, p), "표시값": text_of(args),
+                        "값": num if isinstance(num, (int, float)) and len(args) > 1 else None})
+        return out
+
+    def set_dyn_raw(self, channel, param, value):
+        ch = int(channel)
+        self._check("ch", ch)
+        names = {p["이름"] for p in self.dyn_raw_params(ch)}
+        if param not in names:
+            raise ToolError(f"이 컴프에는 '{param}' 값이 없습니다. 고를 수 있는 것: {', '.join(sorted(names))}")
+        cur = self._num_opt(f"/ch/{ch}/dyn/{param}")
+        new = number_of(self.w.set(f"/ch/{ch}/dyn/{param}", float(value)))
+        return {"채널": ch, "설정": param, "이전": cur, "현재": new}
+
+    def comp_preset(self, channel, preset, preview_only=False):
+        import compressor
+        self._check("ch", channel)
+        try:
+            r = compressor.apply(self, channel, preset, preview=bool(preview_only))
+        except ValueError as e:
+            raise ToolError(str(e))
+        if not preview_only:
+            self._voice_undo(channel).append(r["undo"])
+        r.pop("undo", None)
+        return r
+
+    def comp_tweak(self, channel, kind):
+        import compressor
+        self._check("ch", channel)
+        try:
+            r = compressor.tweak(self, channel, kind)
         except ValueError as e:
             raise ToolError(str(e))
         self._voice_undo(channel).append(r.pop("undo"))

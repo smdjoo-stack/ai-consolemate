@@ -72,8 +72,13 @@ for i in range(1, 41):
     state[f"/ch/{i}/eq/heq"] = "SHV"
     state[f"/ch/{i}/dyn/on"] = 1 if i <= 6 else 0
     state[f"/ch/{i}/dyn/mdl"] = "COMP"
-    for k, v in (("thr", -20.0), ("ratio", 3.0), ("gain", 0.0), ("att", 20.0), ("rel", 100.0)):
-        state[f"/ch/{i}/dyn/{k}"] = v
+    if i == 9:      # 실제 콘솔처럼 빈티지 컴프(76LA) 하나
+        state[f"/ch/{i}/dyn/mdl"] = "76LA"
+        for k, v in (("mix", 100.0), ("gain", 0.0), ("in", -40.0), ("out", -14.0), ("att", 7.0), ("rel", 1.0), ("ratio", "4")):
+            state[f"/ch/{i}/dyn/{k}"] = v
+    else:
+        for k, v in (("thr", -20.0), ("ratio", 3.0), ("gain", 0.0), ("att", 20.0), ("rel", 100.0), ("knee", 3.0), ("mix", 100.0)):
+            state[f"/ch/{i}/dyn/{k}"] = v
     for slot in ("preins", "postins"):
         state[f"/ch/{i}/{slot}/on"] = 0
         state[f"/ch/{i}/{slot}/ins"] = "NONE"

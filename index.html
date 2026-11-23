@@ -1112,7 +1112,7 @@ function renderDetail(d) {
       </div>
       <div class="vtweaks">
         <button class="mini" data-act="ab">${eq['켜짐'] ? '🔇 EQ 끄고 원래 소리 듣기' : '🔊 EQ 다시 켜기'}</button>
-        <button class="mini" data-act="vundo" ${(voiceUndo[d['채널']] || 0) ? '' : 'disabled'}>↶ 톤·EQ 되돌리기${voiceUndo[d['채널']] ? ` (${voiceUndo[d['채널']]})` : ''}</button>
+        <button class="mini" data-act="vundo" ${(voiceUndo[d['채널']] || 0) ? '' : 'disabled'}>↶ 톤·EQ·컴프 되돌리기${voiceUndo[d['채널']] ? ` (${voiceUndo[d['채널']]})` : ''}</button>
         <span class="muted" id="vmsg"></span>
       </div>
     </div>
@@ -1137,10 +1137,25 @@ function renderDetail(d) {
       <div class="dcard" style="grid-row: span 2"><h4>EQ <span class="meta">${esc(eq['종류'] || '')} · 소리 색깔</span><span class="grow"></span>${ptog('eq_on', eq['켜짐'])}</h4>
         ${eqRows || '<div class="muted">이 EQ 종류는 화면에서 세부 조절을 지원하지 않아요.</div>'}
       </div>
-      <div class="dcard"><h4>컴프 <span class="meta">${esc(dyn['종류'] || '')} · 크기 고르게</span><span class="grow"></span>${ptog('dyn_on', dyn['켜짐'])}</h4>
-        ${dyn['문턱_dB'] != null ? prow('문턱', 'dyn_thr', dyn['문턱_dB'], -60, 0, 'dB', { disabled: !dyn['켜짐'] })
+      <div class="dcard" style="grid-row: span 2"><h4>컴프 <span class="meta">${esc(dyn['종류'] || '')} · 크기 고르게</span><span class="grow"></span>${ptog('dyn_on', dyn['켜짐'])}</h4>
+        ${dyn['문턱_dB'] != null ? `
+          <div class="vtweaks" style="margin:0 0 6px"><button class="primary mini" data-act="comp">🎚 컴프 도우미…</button>
+            <span class="muted">용도를 고르면 시작값을 잡아 드려요</span></div>
+          <div class="vtweaks" style="margin:0 0 8px"><span class="muted">들어 보니…</span>${COMP_TWEAKS.map(([k, l]) => `<button class="mini" data-ctweak="${k}">${l}</button>`).join('')}</div>`
+          + prow('문턱', 'dyn_thr', dyn['문턱_dB'], -60, 0, 'dB', { disabled: !dyn['켜짐'] })
           + prow('비율', 'dyn_ratio', dyn['비율'], 1.1, 20, ':1', { log: true, disabled: !dyn['켜짐'] })
+          + prow('어택', 'dyn_att', dyn['어택_ms'], 0, 120, 'ms', { disabled: !dyn['켜짐'] })
+          + prow('릴리즈', 'dyn_rel', dyn['릴리즈_ms'], 4, 4000, 'ms', { log: true, disabled: !dyn['켜짐'] })
+          + (dyn['니'] != null ? prow('니 (부드럽게)', 'dyn_knee', dyn['니'], 0, 5, '', { disabled: !dyn['켜짐'] }) : '')
           + prow('보충 게인', 'dyn_gain', dyn['보충게인_dB'], -6, 12, 'dB', { disabled: !dyn['켜짐'] })
+          + (dyn['섞는양_%'] != null ? prow('섞는 양', 'dyn_mix', dyn['섞는양_%'], 0, 100, '%', { disabled: !dyn['켜짐'] }) : '')
+          + '<div class="muted" style="margin-top:6px">문턱이 낮을수록·비율이 클수록 많이 눌러요. 어택이 느리면 첫소리가 살고, 릴리즈가 빠르면 출렁일 수 있어요.</div>'
+          : (dyn['세부값'] || []).length ? `<div class="muted" style="margin-bottom:6px">${esc(dyn['종류'])} 빈티지 컴프 세부값 — − / + 로 조금씩 바꿔요</div>`
+            + dyn['세부값'].map(p => `<div class="fxp" data-dyn="${esc(p['이름'])}" data-v="${p['값'] ?? ''}" data-t="${esc(p['표시값'])}">
+                <span class="nm">${esc(p['설명'])}</span>
+                ${p['값'] != null ? '<button class="step" data-d="-1">−</button>' : '<span></span>'}
+                <span class="val">${esc(p['표시값'])}</span>
+                ${p['값'] != null ? '<button class="step" data-d="1">+</button>' : '<span></span>'}</div>`).join('')
           : '<div class="muted">이 종류는 켜기/끄기만 할 수 있어요.</div>'}
       </div>
       <div class="dcard"><h4>게이트 슬롯 <span class="meta">${esc(gate['종류'] || '')}</span><span class="grow"></span>${ptog('gate_on', gate['켜짐'])}</h4>
@@ -1203,6 +1218,21 @@ function bindVoice(box, ch, d) {
     try { await voicePost('undo', { ch }); toast('톤·EQ를 바로 전으로 되돌렸어요'); } catch (e) { toast(e.message, true); }
     setTimeout(() => updateDetail(true), 300);
   };
+  const cb = box.querySelector('[data-act=comp]');
+  if (cb) cb.onclick = () => openCompDialog(ch, d);
+  box.querySelectorAll('[data-ctweak]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { const r = await voicePost('comp_tweak', { ch, kind: b.dataset.ctweak }); toast(`${d['이름'] || '채널 ' + ch}: ${r.say}`); }
+    catch (e) { toast(e.message, true); }
+    b.disabled = false; setTimeout(() => updateDetail(true), 300);
+  });
+  box.querySelectorAll('.fxp[data-dyn] .step').forEach(b => b.onclick = async () => {
+    const row = b.closest('.fxp'), v = Number(row.dataset.v), t = row.dataset.t, dir = Number(b.dataset.d);
+    if (!isFinite(v)) return;
+    const dec = (t.split('.')[1] || '').length, step = dec >= 2 ? 0.05 : dec === 1 ? 0.5 : 1;
+    try { await voicePost('dynraw', { ch, param: row.dataset.dyn, value: v + dir * step }); } catch (e) { toast(e.message, true); }
+    setTimeout(() => updateDetail(true), 200);
+  });
   const tb = box.querySelector('[data-act=tone]');
   if (tb) tb.onclick = () => openToneDialog(ch, d);
   const ts = box.querySelector('[data-act=tonesave]');
@@ -1212,6 +1242,37 @@ function bindVoice(box, ch, d) {
     try { const r = await voicePost('tone_save', { ch, name }); toast(`‘${r['저장']}’ 톤을 저장했어요 (${r['항목_수']}개 항목). 톤 고르기 → 우리 교회 톤에서 쓸 수 있어요.`); }
     catch (e) { toast(e.message, true); }
   };
+}
+const COMP_TWEAKS = [['uneven', '들쭉날쭉해요'], ['squashed', '눌려서 답답해요'], ['quiet', '작아졌어요'],
+  ['pumping', '출렁거려요'], ['dull', '첫소리가 죽었어요'], ['peaks', '갑자기 튀어요']];
+async function openCompDialog(ch, d) {
+  let opt;
+  try { opt = await (await fetch('/api/comp')).json(); } catch (e) { return toast('불러오지 못했어요.', true); }
+  let pick = null;
+  openDialog(`
+    <header><h3>🎚 ${esc(d['이름'] || '채널 ' + ch)} — 컴프 도우미</h3>
+      <p>컴프는 큰 소리는 살짝 누르고 작은 소리는 올려서 <b>크기를 고르게</b> 하는 장치예요. 무엇에 쓰는 마이크인지 고르세요.</p></header>
+    <div class="body">
+      <div class="vchips">${Object.entries(opt.presets).map(([k, v]) => `<button type="button" class="vchip" data-p="${k}" title="${esc(v.why)}">${esc(v.label)}</button>`).join('')}</div>
+      <div id="cprev" style="margin-top:12px"></div>
+    </div>
+    <footer><button value="cancel">닫기</button><span class="grow-sp"></span><button class="primary" id="cgo" value="" disabled>적용하기</button></footer>`, dlg => {
+    const prev = dlg.querySelector('#cprev'), go = dlg.querySelector('#cgo');
+    dlg.querySelectorAll('.vchip').forEach(b => b.onclick = async () => {
+      dlg.querySelectorAll('.vchip').forEach(x => x.classList.toggle('sel', x === b));
+      pick = b.dataset.p; go.disabled = true;
+      try {
+        const r = await voicePost('comp_preview', { ch, preset: pick });
+        prev.innerHTML = `<div class="hintbox ok"><b>${esc(r.preset)}</b><ul class="vwhy">${(r.why || []).map(w => `<li>${esc(w)}</li>`).join('')}</ul>${changeTable(r)}</div>`;
+        go.disabled = false;
+      } catch (e) { prev.innerHTML = `<div class="hintbox err">${esc(e.message)}</div>`; }
+    });
+    go.onclick = async ev => {
+      ev.preventDefault(); go.disabled = true;
+      try { const r = await voicePost('comp_apply', { ch, preset: pick }); closeDialog(); toast(`${r.name || '채널 ' + ch}: ‘${r.preset}’ 적용. 들어 보고 ‘들어 보니…’로 다듬으세요.`); setTimeout(() => updateDetail(true), 300); }
+      catch (e) { toast(e.message, true); go.disabled = false; }
+    };
+  });
 }
 function changeTable(r) {
   return `${(r.notes || []).map(n => `<p class="muted">ℹ ${esc(n)}</p>`).join('')}

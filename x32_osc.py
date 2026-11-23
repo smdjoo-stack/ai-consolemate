@@ -119,6 +119,7 @@ def translate(addr):
             "dyn/thr": ("lin", f"{p}/dyn/thr", (-60, 0)), "dyn/ratio": ("ratio", f"{p}/dyn/ratio", None),
             "dyn/gain": ("lin", f"{p}/dyn/mgain", (0, 24)), "dyn/att": ("lin", f"{p}/dyn/attack", (0, 120)),
             "dyn/rel": ("log", f"{p}/dyn/release", (5, 4000)),
+            "dyn/knee": ("lin", f"{p}/dyn/knee", (0, 5)), "dyn/mix": ("lin", f"{p}/dyn/mix", (0, 100)),
             "preins/on": ("bool", f"{p}/insert/on", None), "preins/ins": ("enum", f"{p}/insert/sel", INSERTS),
         }
         if rest in ch:

@@ -12,7 +12,7 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 FILES = [
-    "app.py", "wing_osc.py", "wing_tools.py", "scenes.py", "speakers.py", "manuals.py", "consoles.py", "x32_osc.py", "gemini.py", "voice_eq.py", "tones.py", "claude_sub.py",
+    "app.py", "wing_osc.py", "wing_tools.py", "scenes.py", "speakers.py", "manuals.py", "consoles.py", "x32_osc.py", "gemini.py", "voice_eq.py", "tones.py", "claude_sub.py", "compressor.py",
     "wing_simulator.py", "x32_simulator.py", "wing_mcp.py",
     "wing_knowledge.md", "index.html", "requirements.txt", "start.bat", "install.bat", "실행.bat",
     "테스트(콘솔없이).bat", "README.md", "LICENSE",
