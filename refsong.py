@@ -75,45 +75,91 @@ class Listener:
         threading.Thread(target=self._run, args=(int(seconds), name, on_done), daemon=True).start()
 
     def _run(self, seconds, name, on_done):
-        import time
-        import warnings
+        """듣기는 매번 새 작은 프로그램(별도 프로세스)에서 — Windows 오디오(COM)가 스레드 사이에서 꼬이지 않게."""
+        import os
+        import subprocess
+        import sys
+        import tempfile
         import numpy as np
+        out = os.path.join(tempfile.gettempdir(), f"consolemate_listen_{os.getpid()}.npy")
         try:
-            warnings.filterwarnings("ignore")
-            import soundcard as sc
-            spk = sc.default_speaker()
-            mic = sc.get_microphone(id=str(spk.name), include_loopback=True)
-            sr = 48000
-            chunks, got, waited = [], 0, 0.0
-            with mic.recorder(samplerate=sr, channels=2, blocksize=4800) as rec:
-                while True:                                   # 소리가 나기 시작할 때까지 (최대 30초)
-                    blk = rec.record(numframes=sr // 2)
-                    if np.max(np.abs(blk)) > 0.003:
-                        chunks.append(blk)
-                        got = len(blk)
-                        break
-                    waited += 0.5
-                    if waited >= 30:
-                        raise ValueError(f"30초 동안 PC에서 소리가 나지 않았어요. 노래를 재생했는지, PC 소리가 꺼져 있지 않은지 "
-                                         f"(출력 장치: {spk.name}) 확인해 주세요.")
-                self.job.update(state="recording", step=f"듣는 중… 0/{seconds}초", started=time.time())
-                while got < sr * seconds:
-                    blk = rec.record(numframes=sr // 2)
-                    chunks.append(blk)
-                    got += len(blk)
-                    self.job["step"] = f"듣는 중… {got // sr}/{seconds}초 (다른 소리는 잠시 꺼 주세요)"
+            p = subprocess.Popen([sys.executable, "-u", os.path.abspath(__file__), "--capture", str(seconds), out],
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding="utf-8",
+                                 creationflags=0x08000000 if os.name == "nt" else 0)
+            dev, err = "", ""
+            for line in p.stdout:
+                line = line.strip()
+                if line.startswith("DEV "):
+                    dev = line[4:]
+                elif line == "REC 0":
+                    self.job.update(state="recording", step=f"듣는 중… 0/{seconds}초")
+                elif line.startswith("REC "):
+                    self.job["step"] = f"듣는 중… {line[4:]}/{seconds}초 (다른 소리는 잠시 꺼 주세요)"
+                elif line.startswith("ERR "):
+                    err = line[4:]
+            p.wait(timeout=30)
+            if err == "silent":
+                raise ValueError(f"30초 동안 PC에서 소리가 나지 않았어요. 노래를 재생했는지, PC 소리가 꺼져 있지 않은지 "
+                                 f"(출력 장치: {dev or '기본 스피커'}) 확인해 주세요.")
+            if err:
+                raise RuntimeError(err)
+            if p.returncode != 0 or not os.path.exists(out):
+                raise RuntimeError("듣기 프로그램이 끝까지 실행되지 않았어요.")
             self.job.update(state="analyzing", step="분석하는 중…")
-            x = np.concatenate(chunks).astype("float32")
-            r = analyze_array(x, sr, name)
-            r["source"] = f"PC 소리 {seconds}초 듣기 ({spk.name})"
+            x = np.load(out)
+            r = analyze_array(x, 48000, name)
+            r["source"] = f"PC 소리 {seconds}초 듣기 ({dev})"
             on_done(r)
             self.job = {"state": "done", "step": "완료", "name": name}
         except ValueError as e:
             self.job = {"state": "error", "error": str(e)}
-        except ImportError:
-            self.job = {"state": "error", "error": "PC 소리 듣기 부품(soundcard)이 없습니다. 프로그램을 다시 켜면 자동으로 설치됩니다."}
         except Exception as e:
             self.job = {"state": "error", "error": f"PC 소리를 받지 못했어요: {e}"}
+        finally:
+            try:
+                os.remove(out)            # 들은 소리는 남기지 않음
+            except OSError:
+                pass
+
+
+def _capture_main(seconds, out):
+    """별도 프로세스: 기본 스피커로 나가는 소리를 받아 out(.npy)에 임시로 씀. 진행 상황은 표준 출력으로."""
+    import warnings
+    import numpy as np
+    warnings.filterwarnings("ignore")
+    try:
+        import soundcard as sc
+    except ImportError:
+        print("ERR PC 소리 듣기 부품(soundcard)이 없습니다. 프로그램을 다시 켜면 자동으로 설치됩니다.", flush=True)
+        return 1
+    try:
+        spk = sc.default_speaker()
+        print(f"DEV {spk.name}", flush=True)
+        mic = sc.get_microphone(id=str(spk.name), include_loopback=True)
+        sr = 48000
+        chunks, got, waited = [], 0, 0.0
+        with mic.recorder(samplerate=sr, channels=2, blocksize=4800) as rec:
+            while True:                                   # 소리가 나기 시작할 때까지 (최대 30초)
+                blk = rec.record(numframes=sr // 2)
+                if np.max(np.abs(blk)) > 0.003:
+                    chunks.append(blk)
+                    got = len(blk)
+                    break
+                waited += 0.5
+                if waited >= 30:
+                    print("ERR silent", flush=True)
+                    return 0
+            print("REC 0", flush=True)
+            while got < sr * seconds:
+                blk = rec.record(numframes=sr // 2)
+                chunks.append(blk)
+                got += len(blk)
+                print(f"REC {got // sr}", flush=True)
+        np.save(out, np.concatenate(chunks).astype("float32"))
+        return 0
+    except Exception as e:
+        print(f"ERR {e}", flush=True)
+        return 1
 
 
 LISTENER = Listener()
@@ -239,3 +285,9 @@ def ai_prompt(r):
             "먼저 지금 채널(악기·보컬)과 메인 상태를 확인하고, 보컬·악기별로 할 일을 우선순위대로 3~6가지만 쉬운 말로 알려 줘. "
             "녹음실 음원과 예배당은 다르니 하울링 위험이 없는 작은 변화(±3 dB 이내) 위주로. "
             "아직 콘솔은 바꾸지 말고, 바꿀 때는 목소리 EQ·톤 프리셋·컴프 도우미의 미리보기로 바뀔 내용을 먼저 보여 줘.")
+
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) >= 4 and sys.argv[1] == "--capture":
+        sys.exit(_capture_main(int(sys.argv[2]), sys.argv[3]))
