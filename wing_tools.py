@@ -56,6 +56,41 @@ TOOLS = [
         "input_schema": {"type": "object", "properties": {"channel": {"type": "integer", "minimum": 1, "maximum": 40}}, "required": ["channel"]},
     },
     {
+        "name": "voice_eq_preset",
+        "description": "마이크 채널에 목소리 EQ 프리셋(시작점)을 적용합니다. 성별·나이·마이크 종류·용도에 맞춰 로우컷과 EQ를 한 번에 맞춥니다. "
+                       "사용자가 '목사님 핀마이크를 60대 남성에 맞춰 줘', '여성 찬양 보컬 EQ 잡아 줘'처럼 말하면 쓰세요. "
+                       "모르는 항목(나이·마이크 종류 등)은 짐작하지 말고 물어보거나, 말씀 목적이면 use=speech로 하세요. "
+                       "preview_only=true 로 먼저 바뀔 내용을 보여 줄 수 있습니다. 적용 뒤에는 실제로 들어 보고 voice_eq_tweak 으로 다듬으라고 안내하세요.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "channel": {"type": "integer", "minimum": 1, "maximum": 40},
+                "gender": {"type": "string", "enum": ["male", "female", "child"]},
+                "age": {"type": "string", "enum": ["young", "middle", "senior"], "description": "young=20~30대, middle=40~50대, senior=60대 이상 (어린이는 young)"},
+                "mic": {"type": "string", "enum": ["handheld", "lapel", "headset", "stand"], "description": "핸드, 핀(옷깃), 헤드셋, 강대상·스탠드"},
+                "use": {"type": "string", "enum": ["speech", "sing"], "description": "speech=말씀·설교·기도, sing=찬양"},
+                "preview_only": {"type": "boolean"},
+            },
+            "required": ["channel", "gender", "age"],
+        },
+    },
+    {
+        "name": "voice_eq_tweak",
+        "description": "들어 본 느낌대로 목소리 EQ를 조금(1~1.5 dB) 다듬습니다. kind: "
+                       "muddy=먹먹해요, clear=말이 잘 안 들려요(또렷하게), harsh=쏘아요·치찰음, thin=얇아요(따뜻하게), "
+                       "boomy=웅웅거려요(저음 많음), dull=어두워요(밝게), nasal=코맹맹이. 한 번에 하나씩, 들어 보고 반복하세요. "
+                       "undo=true 로 마지막 목소리 EQ 변경(프리셋 또는 다듬기)을 되돌립니다.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "channel": {"type": "integer", "minimum": 1, "maximum": 40},
+                "kind": {"type": "string", "enum": ["muddy", "clear", "harsh", "thin", "boomy", "dull", "nasal"]},
+                "undo": {"type": "boolean"},
+            },
+            "required": ["channel"],
+        },
+    },
+    {
         "name": "set_channel_param",
         "description": "입력 채널의 설정 하나를 바꿉니다. param 종류:\n"
                        "- gain: 프리앰프 게인 dB(스테이지박스 입력). 3 dB 넘게 올리면 확인 필요\n"
@@ -1150,6 +1185,44 @@ class WingTools:
         STORE.last_undo = {"scene": s["name"], "values": undo, "at": __import__("time").strftime("%H:%M:%S")}
         return {"적용됨": s["name"], "바뀐_항목": [c["text"] for c in changes][:40], "바뀐_항목_수": len(changes),
                 "되돌리기": "화면의 되돌리기 버튼으로 이전 상태로 돌아갈 수 있습니다."}
+
+    # -------------------------------------------------- 목소리 EQ (성별·나이·마이크 프리셋)
+    def _voice_undo(self, ch):
+        if not hasattr(self, "voice_undo_stack"):
+            self.voice_undo_stack = {}
+        return self.voice_undo_stack.setdefault(int(ch), [])
+
+    def voice_eq_preset(self, channel, gender, age, mic="handheld", use="speech", preview_only=False):
+        import voice_eq
+        self._check("ch", channel)
+        try:
+            r = voice_eq.apply(self, channel, gender, age, mic, use, preview=bool(preview_only))
+        except ValueError as e:
+            raise ToolError(str(e))
+        if not preview_only:
+            self._voice_undo(channel).append(r["undo"])
+        r.pop("undo", None)
+        r["안내"] = "미리보기입니다. 적용하려면 preview_only 없이 다시 호출하세요." if preview_only else \
+            "적용했어요. 실제로 들어 보고 먹먹함·또렷함·치찰음 등을 voice_eq_tweak 으로 조금씩 다듬으세요. 되돌리기 가능."
+        return r
+
+    def voice_eq_tweak(self, channel, kind=None, undo=False):
+        import voice_eq
+        self._check("ch", channel)
+        if undo:
+            stack = self._voice_undo(channel)
+            if not stack:
+                raise ToolError("되돌릴 목소리 EQ 변경이 없습니다.")
+            voice_eq.restore(self, channel, stack.pop())
+            return {"채널": int(channel), "되돌림": True, "남은_되돌리기": len(stack)}
+        if not kind:
+            raise ToolError("kind 를 골라 주세요.")
+        try:
+            r = voice_eq.tweak(self, channel, kind)
+        except ValueError as e:
+            raise ToolError(str(e))
+        self._voice_undo(channel).append(r.pop("undo"))
+        return r
 
     # -------------------------------------------------- dispatcher
     def run(self, name, args):

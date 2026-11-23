@@ -44,6 +44,8 @@ SYSTEM_PROMPT = """당신은 교회 예배 음향을 돕는 'AI 콘솔메이트'
   라우팅 변경은 예배 소리가 통째로 끊길 수 있으니: 먼저 confirmed 없이 호출해 바뀔 내용을 사용자에게 그대로 보여 주고,
   사용자가 분명히 동의했을 때만 confirmed=true 로 다시 호출하세요. 잘못되면 undo_routing 으로 되돌립니다. 예배 중이면 한 번 더 주의를 주세요. 소리를 다듬을 때는 작게(EQ 2~3 dB) 바꾸고 결과를 들어 보라고 하세요.
   +48V는 반드시 사용자 확인 후, 그 채널을 먼저 뮤트하도록 권하세요.
+- 마이크 목소리 톤을 잡아 달라는 요청(예: "목사님 핀마이크 60대 남성에 맞춰 줘")은 voice_eq_preset 으로 시작점을 잡고,
+  "먹먹해요/안 들려요/쏘아요/얇아요" 같은 느낌은 voice_eq_tweak 으로 한 번에 하나씩 다듬으세요. 성별·나이·마이크 종류를 모르면 물어보세요.
 - '예배 순서' 버튼(찬양, 설교 등)은 list_scenes / save_scene / recall_scene 으로 다룹니다. 화면 위쪽 '예배 순서' 줄에서 사람이 직접 누를 수도 있습니다.
   전환은 사용자가 분명히 요청할 때만 하고, 무엇이 바뀌는지 궁금해하면 preview_only 로 먼저 보여 주세요.
 - 메인 출력(main 2~4, 예: CENTER, YOUTUBE 방송)에 보내는 양은 get_main_mix 로 현재 값을 확인한 뒤 set_main_send 로, MAIN(main 1, 예배당) 크기는 채널 페이더(set_fader)로 조절합니다.
@@ -534,6 +536,9 @@ def make_handler(assistant: Assistant, status: dict, health: "Health", state: di
                 self._json({"items": manuals.list_all(), "active": cfg.get("knowledge") or manuals.BUILTIN_ID,
                             "job": manuals.BUILDER.status(), "consoleModel": model, "hasKey": bool(state["key"]),
                             "canEdit": self._is_local()})
+            elif self.path == "/api/voiceeq":
+                import voice_eq
+                self._json(voice_eq.options())
             elif self.path.startswith("/api/manuals/view"):
                 from urllib.parse import urlparse, parse_qs
                 mid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
@@ -809,6 +814,31 @@ def make_handler(assistant: Assistant, status: dict, health: "Health", state: di
                     self._json({"error": str(e)}, 400)
             elif self.path.startswith("/api/manuals/"):
                 self._manuals_post(data)
+            elif self.path.startswith("/api/voiceeq/"):
+                t = assistant.tools
+                if t is None:
+                    return self._json({"error": "콘솔에 연결되어 있지 않습니다."}, 503)
+                act = self.path.rsplit("/", 1)[-1]
+                try:
+                    ch = int(data.get("ch") or 0)
+                    if act in ("preview", "apply"):
+                        r = t.voice_eq_preset(ch, data.get("gender"), data.get("age"), data.get("mic") or "handheld",
+                                              data.get("use") or "speech", preview_only=(act == "preview"))
+                    elif act == "tweak":
+                        r = t.voice_eq_tweak(ch, kind=data.get("kind"))
+                    elif act == "undo":
+                        r = t.voice_eq_tweak(ch, undo=True)
+                    elif act == "ab":       # EQ 껐다 켜서 비교 듣기
+                        r = t.set_channel_param(ch, "eq_on", 1 if data.get("on") else 0)
+                    else:
+                        return self._json({"error": "알 수 없는 요청"}, 404)
+                    r = dict(r) if isinstance(r, dict) else {"result": r}
+                    r["undoCount"] = len(t._voice_undo(ch))
+                    self._json({"ok": True, "result": r})
+                except (ToolError, ValueError, TypeError) as e:
+                    self._json({"error": str(e)}, 400)
+                except TimeoutError as e:
+                    self._json({"error": str(e)}, 504)
             elif self.path == "/api/speakers":
                 try:
                     self._json({"ok": True, "speakers": speakers.save_many(data.get("items") or [])})

@@ -340,6 +340,17 @@
   body[data-fam="x32"] .x32only { display:block; }
   body[data-fam="x32"] .wingonly, body[data-fam="x32"] #viewRoute button.mini, body[data-fam="x32"] #routeOut,
   body[data-fam="x32"] #routeUndoBtn { display:none !important; }
+  .voicecard { margin-bottom:12px; border-color: var(--accent); }
+  .vtweaks { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:8px; }
+  .vgroup { margin:10px 0; }
+  .vtitle { font-weight:600; margin-bottom:6px; }
+  .vchips { display:flex; flex-wrap:wrap; gap:6px; }
+  .vchip { padding:8px 14px; border-radius:99px; border:1px solid var(--line2); background:var(--raise); color:var(--text); cursor:pointer; font:inherit; }
+  .vchip.sel { background: var(--grad); color:#fff; border-color:transparent; font-weight:600; }
+  .vchip:disabled { opacity:.35; cursor:default; }
+  .vwhy { margin:6px 0 8px 18px; padding:0; }
+  .vtable { width:100%; border-collapse:collapse; font-size:14px; }
+  .vtable td, .vtable th { padding:4px 6px; border-bottom:1px solid var(--line); text-align:left; }
   .mnlist { display:flex; flex-direction:column; gap:8px; }
   .mnitem { display:flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid var(--line); border-radius:12px; margin-top:6px; }
   .mnitem.on { border-color: var(--ok); }
@@ -1087,6 +1098,19 @@ function renderDetail(d) {
   return `<div class="detail">
     <div class="detail-head"><b>🎛 ${esc(d['이름'] || ('채널 ' + d['채널']))} 채널 설정</b>
       <span class="muted">콘솔 HOME 화면과 같은 내용 · 바꾸면 바로 콘솔에 적용돼요</span></div>
+    <div class="dcard voicecard">
+      <h4>🎙 목소리 EQ 도우미 <span class="meta">잘 몰라도 괜찮아요 — 고르고, 들어 보고, 버튼으로 다듬기</span><span class="grow"></span>
+        <button class="primary mini" data-act="voice">목소리에 맞추기…</button></h4>
+      <div class="vtweaks">
+        <span class="muted">들어 보니…</span>
+        ${VOICE_TWEAKS.map(([k, l]) => `<button class="mini" data-tweak="${k}" ${eq['켜짐'] ? '' : 'disabled'}>${l}</button>`).join('')}
+      </div>
+      <div class="vtweaks">
+        <button class="mini" data-act="ab">${eq['켜짐'] ? '🔇 EQ 끄고 원래 소리 듣기' : '🔊 EQ 다시 켜기'}</button>
+        <button class="mini" data-act="vundo" ${(voiceUndo[d['채널']] || 0) ? '' : 'disabled'}>↶ 목소리 EQ 되돌리기${voiceUndo[d['채널']] ? ` (${voiceUndo[d['채널']]})` : ''}</button>
+        <span class="muted" id="vmsg"></span>
+      </div>
+    </div>
     <div class="dgrid">
       <div class="dcard"><h4>입력 <span class="meta">${inp ? esc(inp['연결']) + (inp['소스이름'] ? ' · ' + esc(inp['소스이름']) : '') : '연결 정보 없음'}</span><span class="grow"></span><button class="mini" data-act="chin">입력 단자 바꾸기</button></h4>
         ${inp ? prow('게인', 'gain', inp['게인_dB'], -3, 60, 'dB', { color: col }) : ''}
@@ -1134,7 +1158,95 @@ async function updateDetail(force = false) {
   box.querySelectorAll('.ptog').forEach(b => bindToggle(b, ch));
   const chin = box.querySelector('[data-act=chin]');
   if (chin) chin.onclick = () => openInputDialog(ch, d);
+  bindVoice(box, ch, d);
   if (fk) { const el = box.querySelector(`[data-k="${fk}"] input, button[data-k="${fk}"]`); if (el) el.focus(); }
+}
+// ---------- 목소리 EQ 도우미 (성별·나이·마이크 프리셋 + 들어 보고 다듬기)
+const VOICE_TWEAKS = [['muddy', '먹먹해요'], ['clear', '말이 잘 안 들려요'], ['harsh', '쏘아요 (ㅅ 소리)'], ['thin', '얇아요'],
+  ['boomy', '웅웅거려요'], ['dull', '어두워요'], ['nasal', '코맹맹이']];
+const voiceUndo = {};      // 채널 → 되돌릴 수 있는 횟수
+async function voicePost(act, body) {
+  lastControlAt = Date.now();
+  const r = await post('/api/voiceeq/' + act, body);
+  if (r.result && r.result.undoCount != null) voiceUndo[body.ch] = r.result.undoCount;
+  return r.result;
+}
+function bindVoice(box, ch, d) {
+  const msg = t => { const m = box.querySelector('#vmsg'); if (m) m.textContent = t; };
+  const v = box.querySelector('[data-act=voice]');
+  if (v) v.onclick = () => openVoiceDialog(ch, d);
+  box.querySelectorAll('[data-tweak]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { const r = await voicePost('tweak', { ch, kind: b.dataset.tweak }); toast(`${d['이름'] || '채널 ' + ch}: ${r.say}`); msg(r.say + ' — 다시 들어 보세요'); }
+    catch (e) { toast(e.message, true); }
+    b.disabled = false; setTimeout(() => updateDetail(true), 300);
+  });
+  const ab = box.querySelector('[data-act=ab]');
+  if (ab) ab.onclick = async () => {
+    const turnOn = !d['EQ']['켜짐'];
+    try { await voicePost('ab', { ch, on: turnOn }); toast(turnOn ? 'EQ를 다시 켰어요' : 'EQ를 껐어요 — 원래 소리와 비교해 보세요. 다 들었으면 꼭 다시 켜세요.'); }
+    catch (e) { toast(e.message, true); }
+    setTimeout(() => updateDetail(true), 300);
+  };
+  const u = box.querySelector('[data-act=vundo]');
+  if (u) u.onclick = async () => {
+    try { await voicePost('undo', { ch }); toast('목소리 EQ를 바로 전으로 되돌렸어요'); } catch (e) { toast(e.message, true); }
+    setTimeout(() => updateDetail(true), 300);
+  };
+}
+async function openVoiceDialog(ch, d) {
+  let opt;
+  try { opt = await (await fetch('/api/voiceeq')).json(); } catch (e) { return toast('불러오지 못했어요.', true); }
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem('voiceEq:' + ch) || '{}'); } catch (e) {}
+  const pick = { gender: saved.gender || 'male', age: saved.age || 'middle', mic: saved.mic || 'handheld', use: saved.use || 'speech' };
+  const group = (key, title, items) => `<div class="vgroup"><div class="vtitle">${title}</div><div class="vchips">${
+    Object.entries(items).map(([k, l]) => `<button type="button" class="vchip ${pick[key] === k ? 'sel' : ''}" data-g="${key}" data-v="${k}">${esc(l)}</button>`).join('')}</div></div>`;
+  openDialog(`
+    <header><h3>🎙 ${esc(d['이름'] || '채널 ' + ch)} — 목소리에 맞추기</h3>
+      <p>누구의, 어떤 마이크인지 고르면 무난한 시작 EQ를 잡아 드려요. 적용한 뒤 꼭 들어 보고 ‘들어 보니…’ 버튼으로 다듬으세요.</p></header>
+    <div class="body">
+      ${group('gender', '누구 목소리인가요?', opt.genders)}
+      ${group('age', '나이대', opt.ages)}
+      ${group('mic', '마이크 종류', opt.mics)}
+      ${group('use', '무엇을 하나요?', opt.uses)}
+      <div id="vprev"></div>
+    </div>
+    <footer><button value="cancel">닫기</button><span class="grow-sp"></span>
+      <button id="vpv" value="">바뀔 내용 보기</button><button class="primary" id="vgo" value="" disabled>적용하기</button></footer>`, dlg => {
+    const prev = dlg.querySelector('#vprev'), go = dlg.querySelector('#vgo');
+    const refreshAge = () => dlg.querySelectorAll('[data-g=age]').forEach(b => b.disabled = pick.gender === 'child');
+    dlg.querySelectorAll('.vchip').forEach(b => b.onclick = () => {
+      pick[b.dataset.g] = b.dataset.v;
+      dlg.querySelectorAll(`.vchip[data-g=${b.dataset.g}]`).forEach(x => x.classList.toggle('sel', x === b));
+      if (pick.gender === 'child') pick.age = 'young';
+      refreshAge(); prev.innerHTML = ''; go.disabled = true;
+    });
+    refreshAge();
+    dlg.querySelector('#vpv').onclick = async ev => {
+      ev.preventDefault();
+      try {
+        const r = await voicePost('preview', { ch, ...pick });
+        prev.innerHTML = `<div class="hintbox ok"><b>${esc(r.preset)}</b>
+          <ul class="vwhy">${r.why.map(w => `<li>${esc(w)}</li>`).join('')}</ul>
+          ${r.changes.length ? `<table class="vtable"><tr><th>항목</th><th>지금</th><th></th><th>바뀔 값</th></tr>${r.changes.map(c =>
+            { const onoff = /_on$|^lc$/.test(c.key), f = v => v == null ? '-' : onoff ? (Number(v) ? '켜짐' : '꺼짐') : v;
+              return `<tr><td>${esc(c.label)}</td><td class="muted">${f(c.from)}</td><td>→</td><td><b>${f(c.to)}</b></td></tr>`; }).join('')}</table>` : '<p>이미 이 설정과 같아요.</p>'}
+          <p class="muted">게인·볼륨·뮤트는 바뀌지 않아요. 적용 후 ↶ 되돌리기로 언제든 원래대로 돌릴 수 있어요.</p></div>`;
+        go.disabled = false;
+      } catch (e) { prev.innerHTML = `<div class="hintbox err">${esc(e.message)}</div>`; }
+    };
+    go.onclick = async ev => {
+      ev.preventDefault();
+      go.disabled = true;
+      try {
+        const r = await voicePost('apply', { ch, ...pick });
+        try { localStorage.setItem('voiceEq:' + ch, JSON.stringify(pick)); } catch (e) {}
+        closeDialog(); toast(`${r.name || '채널 ' + ch}에 ‘${r.preset}’ EQ를 적용했어요. 들어 보고 다듬으세요.`);
+        setTimeout(() => updateDetail(true), 300);
+      } catch (e) { toast(e.message, true); go.disabled = false; }
+    };
+  });
 }
 async function sendParam(ch, key, value, confirmed = false) {
   lastControlAt = Date.now();
