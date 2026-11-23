@@ -235,6 +235,11 @@ class Assistant:
                     return {"reply": "인터넷 연결을 확인해 주세요 (Claude 서버에 접속할 수 없음).", "actions": actions, "_error": "인터넷 연결 안 됨"}
                 except anthropic.APIStatusError as e:
                     self.messages.pop()
+                    if "credit balance" in str(e.message).lower():
+                        return {"reply": "Claude API 계정의 충전 잔액(크레딧)이 부족해서 AI가 대답할 수 없습니다.\n"
+                                         "- console.anthropic.com 에 로그인 → Plans & Billing(결제) → Buy credits 로 충전해 주세요.\n"
+                                         "- 충전하면 프로그램을 다시 켜지 않아도 바로 됩니다. 흐름도·직접 조절·예배 순서는 지금도 쓸 수 있어요.",
+                                "actions": actions, "_error": "Claude 크레딧(충전 잔액) 부족 — console.anthropic.com 에서 충전"}
                     return {"reply": f"Claude API 오류 ({e.status_code}): {e.message}", "actions": actions, "_error": f"Claude API 오류 {e.status_code}"}
 
                 self.messages.append({"role": "assistant", "content": response.content})
@@ -392,7 +397,8 @@ class Health:
                 elif self.a.ai_ok is False:
                     ai = {"state": "down", "message": self.a.ai_error}
                     warnings.append({"level": "warn", "text": f"AI 대화에 문제가 있습니다: {self.a.ai_error}",
-                                     "hint": "API 키가 문제라면 config.json을 확인하고 프로그램을 다시 켜 주세요."})
+                                     "hint": "console.anthropic.com → Plans & Billing 에서 충전하면 바로 다시 됩니다."
+                                     if "크레딧" in self.a.ai_error else "⚙ 설정 → 🔑 API 키에서 키를 확인해 주세요."})
                 else:
                     ai = {"state": "ok", "message": ("Gemini" if getattr(self.a.client, "provider", "") == "google" else "Claude") + " 준비됨"}
             ago = None if self.last_ok is None else round(time.time() - self.last_ok, 1)
