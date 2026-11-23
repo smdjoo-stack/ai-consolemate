@@ -3,3 +3,4 @@ pypdf
 mcp<2
 numpy
 soundfile
+soundcard

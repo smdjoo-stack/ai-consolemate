@@ -343,6 +343,10 @@
   .refup { display:flex; flex-direction:column; gap:8px; margin:6px 0 14px; }
   .refdrop { display:flex; flex-direction:column; align-items:center; gap:6px; padding:26px 16px; border:2px dashed var(--line2); border-radius:16px; cursor:pointer; background: var(--raise); text-align:center; }
   .refdrop:hover, .refdrop.over { border-color: var(--accent); }
+  .refyt { display:flex; flex-direction:column; gap:6px; padding:14px 16px; border:1px solid var(--line2); border-radius:16px; background: var(--raise); }
+  .refrow { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .refrow input, .refrow select { font:inherit; padding:9px 12px; border-radius:12px; border:1px solid var(--line2); background: var(--bg); color: var(--text); }
+  .refrow input[type=url] { flex:1; min-width:240px; }
   .refcard { border:1px solid var(--line); border-radius:16px; padding:14px 16px; background: var(--raise); }
   .refcard h4 { margin:0 0 8px; }
   .refchart { width:100%; height:auto; display:block; margin:4px 0 10px; }
@@ -496,7 +500,18 @@
         <div class="refup">
           <label class="refdrop" id="refDrop"><input type="file" id="refFile" accept=".mp3,.wav,.flac,.ogg,audio/*" hidden>
             <b>🎵 노래 파일 고르기</b><span class="muted">또는 여기로 끌어다 놓기 · MP3·WAV·FLAC·OGG · 10분까지</span></label>
-          <div class="muted" style="font-size:13px">💡 유튜브에서 내려받은 파일 대신, 가지고 있는 음원·MR·우리 예배 녹음을 쓰세요 (저작권·유튜브 약관).</div>
+          <div class="refyt">
+            <b>▶ 유튜브·음원 앱에서 듣고 분석</b>
+            <span class="muted">링크를 붙여 넣고 누르면 브라우저에서 열려요. 노래가 나오면 이 PC에서 나오는 소리를 듣고 분석해요 (파일로 저장하지 않아요).</span>
+            <div class="refrow">
+              <input type="url" id="refUrl" placeholder="https://www.youtube.com/watch?v=… (비워 두면 지금 재생 중인 소리)" autocomplete="off">
+              <input type="text" id="refTitle" placeholder="곡 이름 (선택)" maxlength="60" autocomplete="off" style="max-width:180px">
+              <select id="refSecs" aria-label="듣는 시간"><option value="30">30초</option><option value="45" selected>45초</option><option value="60">60초</option><option value="90">90초</option></select>
+              <button class="primary" id="refListen">🎧 열고 듣기</button>
+            </div>
+            <span class="muted" style="font-size:12.5px">팁: 노래의 가장 대표적인 부분(후렴)이 나올 때 듣게 하세요. 듣는 동안 다른 소리(알림·영상)는 꺼 주세요. 광고가 나오면 끝난 뒤 다시 하세요.</span>
+          </div>
+          <div class="muted" style="font-size:13px">💡 유튜브 영상은 내려받지 않고 PC에서 재생되는 소리만 분석해요. 파일로 할 때는 가지고 있는 음원·MR·우리 예배 녹음을 쓰세요.</div>
         </div>
         <div id="refOut"></div>
       </div>
@@ -971,9 +986,28 @@ function renderRef(r) {
     toast('AI에게 물어봤어요. 오른쪽 대화창을 보세요.');
   };
 }
+var refPoll = null;
+async function refListen() {
+  const body = { url: $('refUrl').value.trim(), title: $('refTitle').value.trim(), seconds: Number($('refSecs').value) };
+  try { await post('/api/refsong/listen', body); } catch (e) { return toast(e.message, true); }
+  $('refListen').disabled = true;
+  clearInterval(refPoll);
+  refPoll = setInterval(async () => {
+    let j; try { j = await (await fetch('/api/refsong/job')).json(); } catch (e) { return; }
+    if (j.state === 'waiting' || j.state === 'recording' || j.state === 'analyzing') {
+      $('refOut').innerHTML = `<div class="hintbox"><span class="spin"></span> ${esc(j.step || '')}${j.state === 'waiting' ? '<br><span class="muted">브라우저에서 ▶ 재생을 눌러 주세요. 소리가 나면 자동으로 듣기 시작해요.</span>' : ''}</div>`;
+      return;
+    }
+    clearInterval(refPoll); $('refListen').disabled = false;
+    if (j.state === 'error') { $('refOut').innerHTML = `<div class="hintbox err">${esc(j.error)}</div>`; return; }
+    if (j.state === 'done') { const r = await (await fetch('/api/refsong')).json(); if (r && r.bands) { renderRef(r); toast('분석이 끝났어요. 이제 노래는 멈춰도 돼요.'); } }
+  }, 1000);
+}
 (() => {
   const f = $('refFile'), drop = $('refDrop');
   if (!f) return;
+  $('refListen').onclick = refListen;
+  $('refUrl').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); refListen(); } });
   f.onchange = () => { refUpload(f.files[0]); f.value = ''; };
   ['dragover', 'dragenter'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add('over'); }));
   ['dragleave', 'drop'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.remove('over'); }));

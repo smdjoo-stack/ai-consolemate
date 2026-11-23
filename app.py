@@ -564,6 +564,9 @@ def make_handler(assistant: Assistant, status: dict, health: "Health", state: di
             elif self.path == "/api/tones":
                 import tones
                 self._json(tones.options())
+            elif self.path == "/api/refsong/job":
+                import refsong
+                self._json(refsong.LISTENER.status())
             elif self.path in ("/api/refsong", "/api/refsong/prompt"):
                 import refsong
                 last = state.get("refsong")
@@ -882,6 +885,24 @@ def make_handler(assistant: Assistant, status: dict, health: "Health", state: di
                     self._json({"error": str(e)}, 400)
             elif self.path.startswith("/api/manuals/"):
                 self._manuals_post(data)
+            elif self.path == "/api/refsong/listen":
+                if not self._is_local():
+                    return self._json({"error": "이 프로그램이 켜진 PC에서만 할 수 있어요 (그 PC의 소리를 들어요)."}, 403)
+                import refsong
+                from urllib.parse import urlparse
+                url = str(data.get("url") or "").strip()
+                if url and (urlparse(url).scheme not in ("http", "https") or not urlparse(url).hostname):
+                    return self._json({"error": "https:// 로 시작하는 링크를 붙여 넣어 주세요."}, 400)
+                secs = max(20, min(90, int(data.get("seconds") or 45)))
+                title = str(data.get("title") or "").strip()[:60]
+                if not title:
+                    host = (urlparse(url).hostname or "") if url else ""
+                    title = ("유튜브 노래" if "youtu" in host else "링크의 노래") if url else "PC에서 재생한 노래"
+                try:
+                    refsong.LISTENER.start(secs, title, on_done=lambda r: state.__setitem__("refsong", r), open_url=url or None)
+                except ValueError as e:
+                    return self._json({"error": str(e)}, 409)
+                self._json({"ok": True})
             elif self.path.startswith("/api/voiceeq/"):
                 t = assistant.tools
                 if t is None:

@@ -43,14 +43,86 @@ def _read(data, name):
     except Exception as e:
         raise ValueError(f"음악 파일을 읽지 못했습니다 ({type(e).__name__}). MP3·WAV·FLAC·OGG 파일을 써 주세요. "
                          "(m4a·aac 는 아직 안 돼요)")
-    if len(x) < sr * 5:
-        raise ValueError("5초보다 짧은 파일은 분석하기 어려워요.")
     return x, sr
 
 
 def analyze(data: bytes, name: str = ""):
-    import numpy as np
     x, sr = _read(data, name)
+    return analyze_array(x, sr, name)
+
+
+# ---------------------------------------------------------------- PC에서 나오는 소리 듣기 (유튜브·음원 앱)
+class Listener:
+    """PC 스피커로 나가는 소리를 그대로 받아(루프백) 분석합니다. 파일로 저장하지 않습니다."""
+
+    def __init__(self):
+        import threading
+        self.lock = threading.Lock()
+        self.job = {"state": "idle"}
+
+    def status(self):
+        return dict(self.job)
+
+    def start(self, seconds, name, on_done, open_url=None):
+        import threading
+        with self.lock:
+            if self.job.get("state") in ("waiting", "recording"):
+                raise ValueError("이미 듣는 중이에요. 끝난 뒤 다시 해 주세요.")
+            self.job = {"state": "waiting", "step": "재생을 기다리는 중… 노래를 재생해 주세요 (30초 안에)", "name": name}
+        if open_url:
+            import webbrowser
+            webbrowser.open(open_url)
+        threading.Thread(target=self._run, args=(int(seconds), name, on_done), daemon=True).start()
+
+    def _run(self, seconds, name, on_done):
+        import time
+        import warnings
+        import numpy as np
+        try:
+            warnings.filterwarnings("ignore")
+            import soundcard as sc
+            spk = sc.default_speaker()
+            mic = sc.get_microphone(id=str(spk.name), include_loopback=True)
+            sr = 48000
+            chunks, got, waited = [], 0, 0.0
+            with mic.recorder(samplerate=sr, channels=2, blocksize=4800) as rec:
+                while True:                                   # 소리가 나기 시작할 때까지 (최대 30초)
+                    blk = rec.record(numframes=sr // 2)
+                    if np.max(np.abs(blk)) > 0.003:
+                        chunks.append(blk)
+                        got = len(blk)
+                        break
+                    waited += 0.5
+                    if waited >= 30:
+                        raise ValueError(f"30초 동안 PC에서 소리가 나지 않았어요. 노래를 재생했는지, PC 소리가 꺼져 있지 않은지 "
+                                         f"(출력 장치: {spk.name}) 확인해 주세요.")
+                self.job.update(state="recording", step=f"듣는 중… 0/{seconds}초", started=time.time())
+                while got < sr * seconds:
+                    blk = rec.record(numframes=sr // 2)
+                    chunks.append(blk)
+                    got += len(blk)
+                    self.job["step"] = f"듣는 중… {got // sr}/{seconds}초 (다른 소리는 잠시 꺼 주세요)"
+            self.job.update(state="analyzing", step="분석하는 중…")
+            x = np.concatenate(chunks).astype("float32")
+            r = analyze_array(x, sr, name)
+            r["source"] = f"PC 소리 {seconds}초 듣기 ({spk.name})"
+            on_done(r)
+            self.job = {"state": "done", "step": "완료", "name": name}
+        except ValueError as e:
+            self.job = {"state": "error", "error": str(e)}
+        except ImportError:
+            self.job = {"state": "error", "error": "PC 소리 듣기 부품(soundcard)이 없습니다. 프로그램을 다시 켜면 자동으로 설치됩니다."}
+        except Exception as e:
+            self.job = {"state": "error", "error": f"PC 소리를 받지 못했어요: {e}"}
+
+
+LISTENER = Listener()
+
+
+def analyze_array(x, sr, name=""):
+    import numpy as np
+    if len(x) < sr * 5:
+        raise ValueError("5초보다 짧아서 분석하기 어려워요.")
     mono = x.mean(axis=1).astype(np.float64)
     dur = len(mono) / sr
 
