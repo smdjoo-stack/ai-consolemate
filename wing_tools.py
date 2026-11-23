@@ -75,6 +75,35 @@ TOOLS = [
         },
     },
     {
+        "name": "tone_preset",
+        "description": "채널에 톤 프리셋(로우컷·EQ·컴프)을 적용합니다. 다음 중 하나를 지정하세요.\n"
+                       "- preset: 악기 프리셋 kick, snare, tom, overhead, bass, egtr(일렉), agtr(어쿠스틱), keys(피아노·건반), pad(신디 패드·오르간), "
+                       "choir(성가대·그룹 마이크), playback(MR·영상), flat(평평하게 초기화). 또는 우리 교회가 저장한 톤 이름\n"
+                       "- from_channel: 그 채널의 지금 톤을 그대로 복사\n"
+                       "목소리(설교·보컬)에는 voice_eq_preset 을 쓰세요. preview_only=true 로 먼저 바뀔 내용을 보여 줄 수 있고, "
+                       "되돌리기는 voice_eq_tweak(undo=true).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "channel": {"type": "integer", "minimum": 1, "maximum": 40},
+                "preset": {"type": "string"},
+                "from_channel": {"type": "integer", "minimum": 1, "maximum": 40},
+                "preview_only": {"type": "boolean"},
+            },
+            "required": ["channel"],
+        },
+    },
+    {
+        "name": "tone_save",
+        "description": "채널의 지금 톤(로우컷·EQ·컴프)을 이름 붙여 '우리 교회 톤'으로 저장합니다. 같은 이름이면 덮어씁니다. "
+                       "저장한 톤은 tone_preset 의 preset 에 이름으로 쓸 수 있습니다.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"channel": {"type": "integer", "minimum": 1, "maximum": 40}, "name": {"type": "string"}},
+            "required": ["channel", "name"],
+        },
+    },
+    {
         "name": "voice_eq_tweak",
         "description": "들어 본 느낌대로 목소리 EQ를 조금(1~1.5 dB) 다듬습니다. kind: "
                        "muddy=먹먹해요, clear=말이 잘 안 들려요(또렷하게), harsh=쏘아요·치찰음, thin=얇아요(따뜻하게), "
@@ -1223,6 +1252,48 @@ class WingTools:
             raise ToolError(str(e))
         self._voice_undo(channel).append(r.pop("undo"))
         return r
+
+    # -------------------------------------------------- 톤 프리셋 (악기·우리 교회 톤·복사)
+    def tone_preset(self, channel, preset=None, from_channel=None, preview_only=False):
+        import tones
+        self._check("ch", channel)
+        try:
+            if from_channel:
+                self._check("ch", from_channel)
+                if int(from_channel) == int(channel):
+                    raise ToolError("같은 채널로는 복사할 수 없습니다.")
+                items = tones.saved_items(tones.capture(self, int(from_channel)))
+                title = f"{self._name('ch', int(from_channel)) or '채널 ' + str(from_channel)} 톤 복사"
+                why = [f"채널 {from_channel}의 로우컷·EQ·컴프를 그대로 가져옴"]
+            elif preset in tones.INSTRUMENTS:
+                items, why = tones.instrument_items(preset)
+                title = tones.INSTRUMENTS[preset]["label"]
+            else:
+                t = tones.STORE.find(preset)
+                if t is None:
+                    names = list(tones.INSTRUMENTS) + [x["name"] for x in tones.STORE.tones]
+                    raise ToolError(f"'{preset}' 톤이 없습니다. 고를 수 있는 것: {', '.join(names)}")
+                items, title = tones.saved_items(t["values"]), f"우리 교회 톤 ‘{t['name']}’"
+                why = [f"{t.get('saved', '')}에 {t.get('source', '')}에서 저장한 톤"]
+            r = tones.apply_items(self, channel, items, preview=bool(preview_only))
+        except ValueError as e:
+            raise ToolError(str(e))
+        if not preview_only:
+            self._voice_undo(channel).append(r["undo"])
+        r.pop("undo", None)
+        r.update(preset=title, why=why)
+        return r
+
+    def tone_save(self, channel, name):
+        import tones
+        self._check("ch", channel)
+        vals = tones.capture(self, int(channel))
+        src = f"{self._name('ch', int(channel)) or '채널'} (채널 {int(channel)})"
+        try:
+            t = tones.STORE.save(name, vals, src)
+        except ValueError as e:
+            raise ToolError(str(e))
+        return {"저장": t["name"], "항목_수": len([k for k in vals if not k.startswith("_")]), "출처": src}
 
     # -------------------------------------------------- dispatcher
     def run(self, name, args):

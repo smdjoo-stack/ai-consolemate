@@ -349,6 +349,10 @@
   .vchip.sel { background: var(--grad); color:#fff; border-color:transparent; font-weight:600; }
   .vchip:disabled { opacity:.35; cursor:default; }
   .vwhy { margin:6px 0 8px 18px; padding:0; }
+  .tonecard { border-color: var(--line2); }
+  .vchipwrap { display:inline-flex; align-items:center; gap:2px; }
+  .vdel { border:none; background:transparent; color:var(--muted); cursor:pointer; font-size:12px; padding:2px 4px; }
+  .vdel:hover { color: var(--err); }
   .vtable { width:100%; border-collapse:collapse; font-size:14px; }
   .vtable td, .vtable th { padding:4px 6px; border-bottom:1px solid var(--line); text-align:left; }
   .mnlist { display:flex; flex-direction:column; gap:8px; }
@@ -1107,9 +1111,14 @@ function renderDetail(d) {
       </div>
       <div class="vtweaks">
         <button class="mini" data-act="ab">${eq['켜짐'] ? '🔇 EQ 끄고 원래 소리 듣기' : '🔊 EQ 다시 켜기'}</button>
-        <button class="mini" data-act="vundo" ${(voiceUndo[d['채널']] || 0) ? '' : 'disabled'}>↶ 목소리 EQ 되돌리기${voiceUndo[d['채널']] ? ` (${voiceUndo[d['채널']]})` : ''}</button>
+        <button class="mini" data-act="vundo" ${(voiceUndo[d['채널']] || 0) ? '' : 'disabled'}>↶ 톤·EQ 되돌리기${voiceUndo[d['채널']] ? ` (${voiceUndo[d['채널']]})` : ''}</button>
         <span class="muted" id="vmsg"></span>
       </div>
+    </div>
+    <div class="dcard voicecard tonecard">
+      <h4>🎨 톤 프리셋 <span class="meta">악기 시작 톤 · 우리 교회 톤 · 다른 채널 톤 복사</span><span class="grow"></span>
+        <button class="primary mini" data-act="tone">톤 고르기…</button>
+        <button class="mini" data-act="tonesave">💾 이 채널 톤 저장</button></h4>
     </div>
     <div class="dgrid">
       <div class="dcard"><h4>입력 <span class="meta">${inp ? esc(inp['연결']) + (inp['소스이름'] ? ' · ' + esc(inp['소스이름']) : '') : '연결 정보 없음'}</span><span class="grow"></span><button class="mini" data-act="chin">입력 단자 바꾸기</button></h4>
@@ -1190,9 +1199,73 @@ function bindVoice(box, ch, d) {
   };
   const u = box.querySelector('[data-act=vundo]');
   if (u) u.onclick = async () => {
-    try { await voicePost('undo', { ch }); toast('목소리 EQ를 바로 전으로 되돌렸어요'); } catch (e) { toast(e.message, true); }
+    try { await voicePost('undo', { ch }); toast('톤·EQ를 바로 전으로 되돌렸어요'); } catch (e) { toast(e.message, true); }
     setTimeout(() => updateDetail(true), 300);
   };
+  const tb = box.querySelector('[data-act=tone]');
+  if (tb) tb.onclick = () => openToneDialog(ch, d);
+  const ts = box.querySelector('[data-act=tonesave]');
+  if (ts) ts.onclick = async () => {
+    const name = (prompt(`‘${d['이름'] || '채널 ' + ch}’의 지금 톤(로우컷·EQ·컴프)을 어떤 이름으로 저장할까요?\n예: 주일 인도자 보컬, 우리 교회 킥`, (d['이름'] || '') + ' 톤') || '').trim();
+    if (!name) return;
+    try { const r = await voicePost('tone_save', { ch, name }); toast(`‘${r['저장']}’ 톤을 저장했어요 (${r['항목_수']}개 항목). 톤 고르기 → 우리 교회 톤에서 쓸 수 있어요.`); }
+    catch (e) { toast(e.message, true); }
+  };
+}
+function changeTable(r) {
+  return `${(r.notes || []).map(n => `<p class="muted">ℹ ${esc(n)}</p>`).join('')}
+    ${r.changes.length ? `<table class="vtable"><tr><th>항목</th><th>지금</th><th></th><th>바뀔 값</th></tr>${r.changes.map(c => {
+      const onoff = /_on$|^lc$/.test(c.key), f = v => v == null ? '-' : onoff ? (Number(v) ? '켜짐' : '꺼짐') : v;
+      return `<tr><td>${esc(c.label)}</td><td class="muted">${f(c.from)}</td><td>→</td><td><b>${f(c.to)}</b></td></tr>`; }).join('')}</table>` : '<p>이미 이 톤과 같아요.</p>'}
+    <p class="muted">게인·볼륨·뮤트는 바뀌지 않아요. 적용 후 ↶ 되돌리기로 언제든 원래대로 돌릴 수 있어요.</p>`;
+}
+async function openToneDialog(ch, d) {
+  let opt;
+  try { opt = await (await fetch('/api/tones')).json(); } catch (e) { return toast('불러오지 못했어요.', true); }
+  const chans = ((lastData && lastData.channels) || []).filter(c => c.ch !== ch);
+  let pick = null;      // {preset} | {from}
+  openDialog(`
+    <header><h3>🎨 ${esc(d['이름'] || '채널 ' + ch)} — 톤 고르기</h3>
+      <p>악기에 맞는 시작 톤을 고르거나, 저장해 둔 우리 교회 톤, 다른 채널의 톤을 가져와요. 목소리(설교·보컬)는 ‘목소리에 맞추기’가 더 잘 맞아요.</p></header>
+    <div class="body">
+      <div class="vgroup"><div class="vtitle">악기 시작 톤</div><div class="vchips">${Object.entries(opt.instruments).map(([k, v]) =>
+        `<button type="button" class="vchip" data-preset="${k}" title="${esc(v.why)}">${v.icon} ${esc(v.label)}</button>`).join('')}</div></div>
+      <div class="vgroup"><div class="vtitle">우리 교회 톤</div><div class="vchips">${opt.saved.length ? opt.saved.map(t =>
+        `<span class="vchipwrap"><button type="button" class="vchip" data-preset="${esc(t.id)}" title="${esc(t.source)} · ${esc(t.saved)}">⭐ ${esc(t.name)}</button><button type="button" class="vdel" data-del="${esc(t.id)}" title="삭제" aria-label="${esc(t.name)} 삭제">✕</button></span>`).join('')
+        : '<span class="muted">아직 없어요. 마음에 드는 채널에서 ‘💾 이 채널 톤 저장’을 누르세요.</span>'}</div></div>
+      <div class="vgroup"><div class="vtitle">다른 채널 톤 그대로 가져오기</div>
+        <select id="tfrom" style="font:inherit;padding:8px 10px;border-radius:10px;border:1px solid var(--line2);background:var(--bg);color:var(--text)">
+          <option value="">— 채널 고르기 —</option>${chans.map(c => `<option value="${c.ch}">${c.ch}. ${esc(c.name || '채널 ' + c.ch)}</option>`).join('')}</select></div>
+      <div id="tprev"></div>
+    </div>
+    <footer><button value="cancel">닫기</button><span class="grow-sp"></span>
+      <button id="tpv" value="" disabled>바뀔 내용 보기</button><button class="primary" id="tgo" value="" disabled>적용하기</button></footer>`, dlg => {
+    const prev = dlg.querySelector('#tprev'), pv = dlg.querySelector('#tpv'), go = dlg.querySelector('#tgo'), from = dlg.querySelector('#tfrom');
+    const choose = p => { pick = p; prev.innerHTML = ''; go.disabled = true; pv.disabled = !p; };
+    dlg.querySelectorAll('.vchip[data-preset]').forEach(b => b.onclick = () => {
+      dlg.querySelectorAll('.vchip').forEach(x => x.classList.toggle('sel', x === b)); from.value = '';
+      choose({ preset: b.dataset.preset }); pv.click();
+    });
+    from.onchange = () => { dlg.querySelectorAll('.vchip').forEach(x => x.classList.remove('sel')); choose(from.value ? { from: Number(from.value) } : null); if (from.value) pv.click(); };
+    dlg.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+      if (!confirm('이 톤을 삭제할까요? (채널 설정은 바뀌지 않아요)')) return;
+      try { await voicePost('tone_delete', { ch, id: b.dataset.del }); b.closest('.vchipwrap').remove(); } catch (e) { toast(e.message, true); }
+    });
+    pv.onclick = async ev => {
+      ev && ev.preventDefault && ev.preventDefault();
+      if (!pick) return;
+      try {
+        const r = await voicePost('tone_preview', { ch, ...pick });
+        prev.innerHTML = `<div class="hintbox ok"><b>${esc(r.preset)}</b><ul class="vwhy">${(r.why || []).map(w => `<li>${esc(w)}</li>`).join('')}</ul>${changeTable(r)}</div>`;
+        go.disabled = false;
+      } catch (e) { prev.innerHTML = `<div class="hintbox err">${esc(e.message)}</div>`; }
+    };
+    go.onclick = async ev => {
+      ev.preventDefault(); go.disabled = true;
+      try { const r = await voicePost('tone_apply', { ch, ...pick }); closeDialog(); toast(`${r.name || '채널 ' + ch}에 ‘${r.preset}’을(를) 적용했어요. 들어 보고 ‘들어 보니…’ 버튼으로 다듬으세요.`); setTimeout(() => updateDetail(true), 300); }
+      catch (e) { toast(e.message, true); go.disabled = false; }
+    };
+  });
 }
 async function openVoiceDialog(ch, d) {
   let opt;
@@ -1854,6 +1927,7 @@ async function openSettings(tab = 'church') {
         <label class="opt"><input type="checkbox" value="church" checked><span>교회 이름·메모</span></label>
         <label class="opt"><input type="checkbox" value="scenes" checked><span>예배 순서 버튼 ${(b.scenes || []).length}개</span></label>
         <label class="opt"><input type="checkbox" value="speakers" checked><span>스피커 이름표 ${Object.keys(b.speakers || {}).length}개</span></label>
+        ${(b.tones || []).length ? `<label class="opt"><input type="checkbox" value="tones" checked><span>우리 교회 톤 ${b.tones.length}개</span></label>` : ''}
         ${(b.manuals || []).length ? `<label class="opt"><input type="checkbox" value="manuals" checked><span>설명서 참고 자료 ${b.manuals.length}개</span></label>` : ''}
         <button class="primary" id="rsGo" type="button">가져오기</button>
         <p class="muted">⚠ 다른 교회의 예배 순서 버튼은 채널 구성이 다르면 맞지 않을 수 있어요. 먼저 미리보기로 확인하세요.</p>`;

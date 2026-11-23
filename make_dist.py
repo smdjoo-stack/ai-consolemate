@@ -12,12 +12,12 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 FILES = [
-    "app.py", "wing_osc.py", "wing_tools.py", "scenes.py", "speakers.py", "manuals.py", "consoles.py", "x32_osc.py", "gemini.py", "voice_eq.py",
+    "app.py", "wing_osc.py", "wing_tools.py", "scenes.py", "speakers.py", "manuals.py", "consoles.py", "x32_osc.py", "gemini.py", "voice_eq.py", "tones.py",
     "wing_simulator.py", "x32_simulator.py", "wing_mcp.py",
     "wing_knowledge.md", "index.html", "requirements.txt", "start.bat", "install.bat", "실행.bat",
     "테스트(콘솔없이).bat", "README.md", "LICENSE",
 ]
-NEVER = {"config.json", "scenes.json", "speakers.json"}     # 교회별 정보 — 절대 넣지 않음
+NEVER = {"config.json", "scenes.json", "speakers.json", "tones.json"}     # 교회별 정보 — 절대 넣지 않음
 
 FIRST = """AI 콘솔메이트 설치 방법
 ========================
@@ -65,7 +65,7 @@ def main():
         names = z.namelist()
         cfg = json.loads(z.read(f"{root}/config.json"))
         assert cfg["anthropic_api_key"] == "", "API 키가 들어감!"
-        assert not any(n.endswith(("scenes.json", "speakers.json")) or "/manuals/" in n for n in names), "교회 설정이 들어감!"
+        assert not any(n.endswith(("scenes.json", "speakers.json", "tones.json")) or "/manuals/" in n for n in names), "교회 설정이 들어감!"
     print(f"만들었습니다: {zpath}  ({zpath.stat().st_size // 1024} KB, 파일 {len(names)}개)")
     print("우리 교회 API 키·예배 순서·스피커 이름표·교회 메모는 들어 있지 않습니다.")
 

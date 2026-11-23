@@ -46,6 +46,8 @@ SYSTEM_PROMPT = """당신은 교회 예배 음향을 돕는 'AI 콘솔메이트'
   +48V는 반드시 사용자 확인 후, 그 채널을 먼저 뮤트하도록 권하세요.
 - 마이크 목소리 톤을 잡아 달라는 요청(예: "목사님 핀마이크 60대 남성에 맞춰 줘")은 voice_eq_preset 으로 시작점을 잡고,
   "먹먹해요/안 들려요/쏘아요/얇아요" 같은 느낌은 voice_eq_tweak 으로 한 번에 하나씩 다듬으세요. 성별·나이·마이크 종류를 모르면 물어보세요.
+- 악기 톤(킥·베이스·어쿠스틱 기타·피아노 등)은 tone_preset 으로 시작점을 잡고, "이 톤 저장해 줘"는 tone_save,
+  "1번 톤을 2번에도 똑같이"는 tone_preset(from_channel=1). 악기 채널도 voice_eq_tweak 의 다듬기·되돌리기를 쓸 수 있습니다.
 - '예배 순서' 버튼(찬양, 설교 등)은 list_scenes / save_scene / recall_scene 으로 다룹니다. 화면 위쪽 '예배 순서' 줄에서 사람이 직접 누를 수도 있습니다.
   전환은 사용자가 분명히 요청할 때만 하고, 무엇이 바뀌는지 궁금해하면 preview_only 로 먼저 보여 주세요.
 - 메인 출력(main 2~4, 예: CENTER, YOUTUBE 방송)에 보내는 양은 get_main_mix 로 현재 값을 확인한 뒤 set_main_send 로, MAIN(main 1, 예배당) 크기는 채널 페이더(set_fader)로 조절합니다.
@@ -504,7 +506,8 @@ def make_handler(assistant: Assistant, status: dict, health: "Health", state: di
                 body = json.dumps({"app": "AI 콘솔메이트", "version": 1, "saved": time.strftime("%Y-%m-%d %H:%M"),
                                    "church_name": cfg.get("church_name", ""), "church_notes": cfg.get("church_notes", ""),
                                    "scenes": STORE.scenes, "speakers": speakers.load(),
-                                   "manuals": manuals.export_all(), "knowledge": cfg.get("knowledge", "")},
+                                   "manuals": manuals.export_all(), "knowledge": cfg.get("knowledge", ""),
+                                   "tones": __import__("tones").STORE.tones},
                                   ensure_ascii=False, indent=1).encode("utf-8")
                 from urllib.parse import quote
                 fname = quote(f"AI콘솔메이트_설정백업_{time.strftime('%Y%m%d')}.json")
@@ -539,6 +542,9 @@ def make_handler(assistant: Assistant, status: dict, health: "Health", state: di
             elif self.path == "/api/voiceeq":
                 import voice_eq
                 self._json(voice_eq.options())
+            elif self.path == "/api/tones":
+                import tones
+                self._json(tones.options())
             elif self.path.startswith("/api/manuals/view"):
                 from urllib.parse import urlparse, parse_qs
                 mid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
@@ -774,6 +780,8 @@ def make_handler(assistant: Assistant, status: dict, health: "Health", state: di
                             sp = b["speakers"]
                             speakers.save_many([{"key": k, "name": ""} for k in speakers.load()])     # 비우고
                             speakers.save_many([{"key": k, "name": v.get("name", ""), "type": v.get("type")} for k, v in sp.items()])
+                        if "tones" in parts and isinstance(b.get("tones"), list):
+                            __import__("tones").STORE.replace_all(b["tones"])
                         if "manuals" in parts and isinstance(b.get("manuals"), list):
                             manuals.import_all(b["manuals"])
                             if b.get("knowledge") and manuals.find(b["knowledge"]):
@@ -824,6 +832,15 @@ def make_handler(assistant: Assistant, status: dict, health: "Health", state: di
                     if act in ("preview", "apply"):
                         r = t.voice_eq_preset(ch, data.get("gender"), data.get("age"), data.get("mic") or "handheld",
                                               data.get("use") or "speech", preview_only=(act == "preview"))
+                    elif act in ("tone_preview", "tone_apply"):
+                        r = t.tone_preset(ch, preset=data.get("preset"), from_channel=data.get("from") or None,
+                                          preview_only=(act == "tone_preview"))
+                    elif act == "tone_save":
+                        r = t.tone_save(ch, data.get("name"))
+                    elif act == "tone_delete":
+                        import tones
+                        tones.STORE.delete(data.get("id"))
+                        r = {"ok": True}
                     elif act == "tweak":
                         r = t.voice_eq_tweak(ch, kind=data.get("kind"))
                     elif act == "undo":

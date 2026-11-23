@@ -2,6 +2,7 @@
 config.json
 scenes.json
 speakers.json
+tones.json
 manuals/
 *.tmp
 
