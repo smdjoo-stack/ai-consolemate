@@ -208,6 +208,29 @@ AI에게 "목사님 핀마이크를 60대 남성에 맞춰 줘", "보컬 2번이
 </details>
 
 <details>
+<summary><b>Claude 구독(Pro/Max)으로 쓸 수 있나요?</b></summary>
+
+네. API 키·충전 없이 **Claude 데스크톱 앱의 채팅**에서 말로 콘솔을 조작할 수 있어요. 프로그램 안의 대화창 대신 Claude 앱에서 대화하는 방식이에요. 바뀐 값은 프로그램 화면(흐름도)에 그대로 보여요.
+
+1. Claude 데스크톱 앱 → **설정 → 개발자(Developer) → 구성 편집(Edit Config)** 을 눌러 `claude_desktop_config.json`을 열고 아래처럼 넣으세요. 경로는 프로그램을 푼 폴더와 Python 위치에 맞게 바꾸세요.
+   ```json
+   {
+     "mcpServers": {
+       "ai-consolemate": {
+         "command": "C:\\Users\\(사용자)\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+         "args": ["C:\\(프로그램 폴더)\\wing_mcp.py"],
+         "env": { "PYTHONIOENCODING": "utf-8" }
+       }
+     }
+   }
+   ```
+2. Claude 앱을 **완전히 종료했다가 다시 켜세요**(작업 표시줄 오른쪽 아래 아이콘에서 종료).
+3. 새 채팅에서 "드럼 모니터에 뭐가 들어가 있어?"처럼 물어보세요. 처음 도구를 쓸 때 허락을 물으면 **허용**을 누르세요.
+
+`pip install "mcp<2"`가 필요해요(`install.bat`이 설치해 줘요).
+</details>
+
+<details>
 <summary><b>API 키 없이 쓸 수 있나요?</b></summary>
 
 네. 흐름도, 직접 조절, 예배 순서, 라우팅 보기는 모두 돼요. AI 대화창만 꺼져요.

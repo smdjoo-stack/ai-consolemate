@@ -1,139 +1,130 @@
-"""Claude 앱(구독)에 연결하는 WING 조작 도구 서버 (MCP).
+"""Claude 앱(구독)에 연결하는 콘솔 조작 도구 서버 (MCP).
 
 Claude 데스크톱 앱이 이 파일을 자동으로 실행합니다. 직접 실행할 필요는 없습니다.
-콘솔 IP 는 같은 폴더의 config.json 의 wing_ip 를 사용합니다(비어 있으면 자동 검색).
+- API 키·크레딧 없이 Claude 구독(Pro/Max)으로 대화하며 콘솔을 조작합니다.
+- 프로그램 화면(흐름도)과 같은 도구(wing_tools.TOOLS)를 모두 씁니다: 모니터·볼륨·채널 설정·목소리 EQ·톤 프리셋·
+  라우팅·이펙트·예배 순서 등.
+- 콘솔은 config.json 의 wing_ip(비어 있으면 자동 찾기)로 연결하고, IP가 바뀌면 다시 찾습니다.
+- 예배 순서 버튼·우리 교회 톤은 프로그램과 같은 파일(scenes.json, tones.json)을 씁니다.
 """
 
+import asyncio
 import json
+import os
+import sys
 from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP
-
-from wing_osc import WingClient, discover
-from wing_tools import WingTools
-
 HERE = Path(__file__).parent
+os.chdir(HERE)
+sys.path.insert(0, str(HERE))
 
-INSTRUCTIONS = """교회 예배 음향용 Behringer WING 콘솔을 조작하는 도구입니다. 사용자는 음향 비전문가 봉사자일 수 있습니다.
-- 쉬운 한국어로 짧게 답하고, 전문 용어는 한 줄로 풀어 주세요.
-- 바꾸기 전에 상태를 확인하세요. 악기는 list_strips(kind="ch") 의 채널 이름으로, 모니터는 list_strips(kind="bus") 의 버스 이름으로 찾습니다. 애매하면 후보를 보여주고 물어보세요.
-- "○○ 모니터에 △△ 소리 넣어/키워/줄여/빼" 요청은 set_send(채널→버스)로 처리합니다. 새로 넣을 때는 -10 dB 로 켜고, "조금" 2~3 dB, "많이" 5~6 dB.
-- 예배 중일 수 있으니 작게, 단계적으로 바꾸세요. 메인 뮤트와 10 dB 넘는 증가는 사용자 확인 후 confirmed=true 로만 하세요.
-- 바꾼 뒤에는 이전 → 이후 값을 한두 줄로 알려 주세요.
-- 소리를 직접 들을 수 없으니, 하울링·소리 안 남 같은 문제는 확인 순서를 안내하고 콘솔에서 확인 가능한 것은 도구로 확인하세요.
-- 도구에 없는 기능(씬 불러오기, 출력 패치, EQ 세부 조정)은 콘솔에서 하는 방법을 안내하세요."""
+import mcp.types as types
+from mcp.server.lowlevel import Server
+from mcp.server.stdio import stdio_server
 
-mcp = FastMCP("AI 콘솔메이트", instructions=INSTRUCTIONS)
+import consoles
+from wing_tools import TOOLS
+
+BASE_RULES = """교회 예배 음향 콘솔(Behringer WING / X32 / Midas M32)을 조작하는 'AI 콘솔메이트' 도구입니다. 사용자는 음향 비전문가 봉사자일 수 있습니다.
+- 쉬운 한국어로 짧게 답하고, 전문 용어는 처음 나올 때 한 줄로 풀어 주세요.
+- 바꾸기 전에 상태를 확인하세요. 악기는 list_strips(kind="ch"), 모니터는 list_strips(kind="bus") 의 이름으로 찾고, 애매하면 후보를 보여 주며 물어보세요.
+- "○○ 모니터에 △△ 넣어/키워/줄여" 는 set_send, CENTER·YOUTUBE 같은 메인 출력은 get_main_mix → set_main_send, MAIN 크기는 채널 페이더(set_fader).
+- 목소리 톤은 voice_eq_preset(성별·나이·마이크·용도) 로 시작점을 잡고 voice_eq_tweak 으로 한 번에 하나씩 다듬기. 악기 톤은 tone_preset, 저장은 tone_save.
+- 라우팅 변경은 소리가 통째로 끊길 수 있으니 먼저 confirmed 없이 호출해 바뀔 내용을 보여 주고, 사용자가 분명히 동의했을 때만 confirmed=true.
+- 예배 중일 수 있으니 작게, 단계적으로. 메인 뮤트·+48V·10 dB 넘는 증가는 사용자 확인 후에만.
+- 바꾼 뒤에는 이전 → 이후 값을 한두 줄로 알려 주세요. 소리를 직접 들을 수는 없으니 들어 보고 알려 달라고 하세요.
+- 콘솔 사용법은 get_console_manual 로 공식 설명서 요약을 찾아 안내하고, 설명서 내용이면 (설명서 p.숫자)를 붙이세요.
+- 프로그램 화면(브라우저의 흐름도)에도 바뀐 값이 자동으로 보입니다."""
+
+
+def _cfg():
+    p = Path(os.environ.get("CONSOLEMATE_CONFIG") or (HERE / "config.json"))
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _instructions():
+    cfg = _cfg()
+    extra = ""
+    if cfg.get("church_name") or cfg.get("church_notes"):
+        extra = "\n\n이 교회 정보(우선 참고):\n" + (f"교회 이름: {cfg['church_name']}\n" if cfg.get("church_name") else "") + \
+                (cfg.get("church_notes") or "")
+    return BASE_RULES + extra
+
+
+server = Server("ai-consolemate", instructions=_instructions())
 _tools = None
 
 
-def tools() -> WingTools:
+def tools(refresh=False):
+    """콘솔 연결 (없거나 응답이 없으면 다시 찾기)."""
     global _tools
-    if _tools is None:
-        cfg_path = HERE / "config.json"
-        cfg = json.loads(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
-        ip = (cfg.get("wing_ip") or "").strip()
-        if not ip:
-            found = discover()
-            if not found:
-                raise RuntimeError("WING 콘솔을 찾지 못했습니다. 네트워크 연결을 확인하거나 config.json 의 wing_ip 에 콘솔 IP 를 적어 주세요.")
-            ip = found[0]["ip"]
-        _tools = WingTools(WingClient(ip))
+    if _tools is not None and not refresh:
+        return _tools
+    cfg = _cfg()
+    ip = (cfg.get("wing_ip") or "").strip()
+    fam = cfg.get("console_family") or None
+    found = consoles.discover(timeout=1.5)
+    real = [f for f in found if not f["ip"].startswith("127.")]
+    if ip and not any(f["ip"] == ip for f in found):
+        same = [f for f in real if cfg.get("console_serial") and f.get("serial") == cfg.get("console_serial")]
+        if same or len(real) == 1:
+            ip, fam = (same or real)[0]["ip"], (same or real)[0].get("family")
+    if not ip:
+        if not found:
+            raise RuntimeError("콘솔을 찾지 못했습니다. 콘솔 전원·랜선·같은 공유기 연결을 확인해 주세요.")
+        ip, fam = found[0]["ip"], found[0].get("family")
+    _tools = consoles.open_console(ip, fam)
     return _tools
 
 
-def call(name: str, **args) -> str:
-    args = {k: v for k, v in args.items() if v is not None}
-    out, is_err = tools().run(name, args)
+MANUAL_TOOL = types.Tool(
+    name="get_console_manual",
+    description="콘솔 공식 사용 설명서 요약(쪽 번호 포함)을 봅니다. 사람이 콘솔에서 직접 하는 방법을 안내할 때 먼저 찾아보세요. "
+                "keyword 를 주면 그 단어가 들어간 부분만 돌려줍니다.",
+    inputSchema={"type": "object", "properties": {"keyword": {"type": "string"}}},
+)
+
+
+def manual_text(keyword=""):
+    import manuals
+    cfg = _cfg()
+    text = manuals.text_of(cfg.get("knowledge") or manuals.BUILTIN_ID)
+    if not keyword:
+        return text
+    secs = [s for s in text.split("\n## ") if keyword.lower() in s.lower()]
+    return ("\n## ".join(secs) if secs else f"'{keyword}'가 들어간 부분이 없습니다. 전체 목차:\n" +
+            "\n".join(l for l in text.splitlines() if l.startswith("## ")))[:20000]
+
+
+@server.list_tools()
+async def list_tools():
+    return [types.Tool(name=t["name"], description=t["description"], inputSchema=t["input_schema"]) for t in TOOLS] + [MANUAL_TOOL]
+
+
+def _run(name, args):
+    if name == "get_console_manual":
+        return manual_text((args or {}).get("keyword", "")), False
+    out, is_err = tools().run(name, args or {})
+    if is_err and "응답 없음" in out:         # 콘솔 IP가 바뀌었을 수 있음 → 다시 찾아 한 번 더
+        out, is_err = tools(refresh=True).run(name, args or {})
+    return out, is_err
+
+
+@server.call_tool()
+async def call_tool(name, arguments):
+    out, is_err = await asyncio.to_thread(_run, name, arguments or {})
     if is_err:
         raise RuntimeError(out)
-    return out
+    return [types.TextContent(type="text", text=out)]
 
 
-@mcp.tool()
-def list_strips(kind: str) -> str:
-    """채널/버스 등의 이름, 페이더(dB), 뮤트 상태 목록. 어떤 채널이 어떤 악기인지, 어떤 버스가 어떤 모니터인지 찾을 때 먼저 사용.
-
-    Args:
-        kind: ch(입력 채널), bus(버스: 모니터 믹스 등), main(메인), dca, aux, mtx 중 하나
-    """
-    return call("list_strips", kind=kind)
-
-
-@mcp.tool()
-def get_monitor_mix(bus: int) -> str:
-    """특정 버스(모니터 스피커/인이어)에 어떤 채널이 얼마나 보내지고 있는지 확인.
-
-    Args:
-        bus: 버스 번호 1~16
-    """
-    return call("get_monitor_mix", bus=bus)
-
-
-@mcp.tool()
-def set_send(channel: int, bus: int, on: bool | None = None, level_db: float | None = None, confirmed: bool = False) -> str:
-    """입력 채널 소리를 버스(모니터)로 보내는 양을 설정. 모니터에 악기 소리를 넣으려면 on=true 와 level_db 를 함께 지정.
-
-    Args:
-        channel: 입력 채널 번호 1~40
-        bus: 버스(모니터) 번호 1~16
-        on: 센드 켜기/끄기 (바꾸지 않으려면 생략)
-        level_db: 센드 레벨 dB, -144(없음)~+10, 0 이 기준. 새로 넣을 때는 -10 부터.
-        confirmed: 10 dB 넘게 올리는 큰 변경을 사용자가 확인했으면 true
-    """
-    return call("set_send", channel=channel, bus=bus, on=on, level_db=level_db, confirmed=confirmed)
-
-
-@mcp.tool()
-def set_fader(kind: str, index: int, db: float, confirmed: bool = False) -> str:
-    """페이더를 지정한 dB(-144~+10)로 맞춤. 조금 올리고 내릴 때는 adjust_fader 사용.
-
-    Args:
-        kind: ch, aux, bus, main, mtx, dca 중 하나
-        index: 번호
-        db: 목표 dB
-        confirmed: 10 dB 넘게 올리는 큰 변경을 사용자가 확인했으면 true
-    """
-    return call("set_fader", kind=kind, index=index, db=db, confirmed=confirmed)
-
-
-@mcp.tool()
-def adjust_fader(kind: str, index: int, delta_db: float, confirmed: bool = False) -> str:
-    """페이더를 현재 값에서 delta_db 만큼 올리거나 내림(예: 3, -2).
-
-    Args:
-        kind: ch, aux, bus, main, mtx, dca 중 하나
-        index: 번호
-        delta_db: 변화량 dB
-        confirmed: 큰 변경을 사용자가 확인했으면 true
-    """
-    return call("adjust_fader", kind=kind, index=index, delta_db=delta_db, confirmed=confirmed)
-
-
-@mcp.tool()
-def set_mute(kind: str, index: int, muted: bool, confirmed: bool = False) -> str:
-    """뮤트 켜기/끄기. 메인(main) 뮤트는 예배당 전체 소리가 꺼지므로 사용자 확인 후 confirmed=true 로만 호출.
-
-    Args:
-        kind: ch, aux, bus, main, mtx, dca 중 하나
-        index: 번호
-        muted: true=뮤트, false=뮤트 해제
-        confirmed: 사용자가 확인했으면 true
-    """
-    return call("set_mute", kind=kind, index=index, muted=muted, confirmed=confirmed)
-
-
-@mcp.tool()
-def set_low_cut(channel: int, on: bool, freq_hz: float | None = None) -> str:
-    """입력 채널 로우컷(HPa) 켜기/끄기와 주파수(20~2000 Hz) 설정. 말소리 웅웅거림, 진동 소음, 저역 하울링에 사용.
-
-    Args:
-        channel: 입력 채널 번호 1~40
-        on: 로우컷 켜기/끄기
-        freq_hz: 차단 주파수 Hz (바꾸지 않으려면 생략)
-    """
-    return call("set_low_cut", channel=channel, on=on, freq_hz=freq_hz)
+async def main():
+    async with stdio_server() as (r, w):
+        await server.run(r, w, server.create_initialization_options())
 
 
 if __name__ == "__main__":
-    mcp.run()
+    asyncio.run(main())

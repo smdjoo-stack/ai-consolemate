@@ -238,7 +238,8 @@ class Assistant:
                     if "credit balance" in str(e.message).lower():
                         return {"reply": "Claude API 계정의 충전 잔액(크레딧)이 부족해서 AI가 대답할 수 없습니다.\n"
                                          "- console.anthropic.com 에 로그인 → Plans & Billing(결제) → Buy credits 로 충전해 주세요.\n"
-                                         "- 충전하면 프로그램을 다시 켜지 않아도 바로 됩니다. 흐름도·직접 조절·예배 순서는 지금도 쓸 수 있어요.",
+                                         "- 충전하면 프로그램을 다시 켜지 않아도 바로 됩니다. 흐름도·직접 조절·예배 순서는 지금도 쓸 수 있어요.\n"
+                                         "- 충전 없이 쓰려면: Claude 앱(구독) 채팅에서 말하세요. 'AI 콘솔메이트' 도구가 연결되어 있어 같은 조작을 할 수 있어요.",
                                 "actions": actions, "_error": "Claude 크레딧(충전 잔액) 부족 — console.anthropic.com 에서 충전"}
                     return {"reply": f"Claude API 오류 ({e.status_code}): {e.message}", "actions": actions, "_error": f"Claude API 오류 {e.status_code}"}
 
