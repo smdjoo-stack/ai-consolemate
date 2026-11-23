@@ -26,6 +26,7 @@ from scenes import STORE, SCOPE_DEFAULT, SCOPE_LABELS
 import speakers
 import manuals
 import gemini
+import claude_sub
 
 HERE = Path(__file__).parent
 MODEL = "claude-opus-5-5"
@@ -102,7 +103,7 @@ def build_system(cfg):
 def ai_provider(cfg):
     """쓸 AI 회사. 설정에 정해 두면 그것만 씀(고정) — 다른 회사로 자동으로 바뀌지 않음."""
     p = (cfg.get("ai_provider") or "").strip()
-    if p in ("google", "anthropic"):
+    if p in ("google", "anthropic", "subscription"):
         return p
     return "google" if cfg.get("google_api_key") else "anthropic"
 
@@ -110,6 +111,8 @@ def ai_provider(cfg):
 def make_ai_client(cfg):
     """(client, key, provider). 키가 없으면 client=None (보기 전용)."""
     p = ai_provider(cfg)
+    if p == "subscription":      # Claude 구독(Pro/Max) — 키 없이 Claude Code 로그인으로
+        return (claude_sub.SubscriptionClient() if claude_sub.find_cli() else None), "subscription", p
     if p == "google":
         key = (cfg.get("google_api_key") or "").strip()
         return (gemini.GeminiClient(key, cfg.get("google_model") or "") if key else None), key, p
@@ -119,7 +122,7 @@ def make_ai_client(cfg):
     return (anthropic.Anthropic(api_key=key) if key else None), key, p
 
 
-PROVIDER_LABEL = {"google": "Google AI Studio (Gemini)", "anthropic": "Claude (Anthropic)"}
+PROVIDER_LABEL = {"google": "Google AI Studio (Gemini)", "anthropic": "Claude API (충전식)", "subscription": "Claude 구독 (Pro/Max)"}
 
 
 def key_hint(key: str):
@@ -191,6 +194,8 @@ class Assistant:
         with self.lock:
             self.messages = []
             self.g_history = []
+            if hasattr(self.client, "reset"):
+                self.client.reset()
 
     def _system(self):
         return self.system_text + ("\n\n" + consoles.console_note(self.tools) if self.tools is not None and self.tools.family != "wing" else "")
@@ -202,7 +207,10 @@ class Assistant:
 
     def _chat(self, user_text: str):
         if self.client is None:
-            return {"reply": "API 키가 없어 이 화면에서는 대화할 수 없습니다. ⚙ 설정 → API 키에서 키를 넣어 주세요.", "actions": []}
+            return {"reply": "AI가 연결되어 있지 않아 이 화면에서는 대화할 수 없습니다. ⚙ 설정 → 🔑 AI 연결에서 고르세요 (Claude 구독·Claude API·Google).", "actions": []}
+        if getattr(self.client, "provider", "") == "subscription":
+            with self.lock:
+                return self.client.chat(self._system(), user_text)
         if getattr(self.client, "provider", "") == "google":
             with self.lock:
                 if len(self.g_history) > 80:        # 너무 길어지면 앞부분 정리
@@ -401,7 +409,8 @@ class Health:
                                      "hint": "console.anthropic.com → Plans & Billing 에서 충전하면 바로 다시 됩니다."
                                      if "크레딧" in self.a.ai_error else "⚙ 설정 → 🔑 API 키에서 키를 확인해 주세요."})
                 else:
-                    ai = {"state": "ok", "message": ("Gemini" if getattr(self.a.client, "provider", "") == "google" else "Claude") + " 준비됨"}
+                    ai = {"state": "ok", "message": {"google": "Gemini", "subscription": "Claude 구독"}.get(
+                        getattr(self.a.client, "provider", ""), "Claude") + " 준비됨"}
             ago = None if self.last_ok is None else round(time.time() - self.last_ok, 1)
             return {"console": console, "ai": ai, "warnings": warnings, "last_ok_sec_ago": ago}
 
@@ -528,11 +537,13 @@ def make_handler(assistant: Assistant, status: dict, health: "Health", state: di
                 self._json({"speakers": speakers.load(), "types": {k: {"icon": v[0], "label": v[1]} for k, v in speakers.TYPES.items()}})
             elif self.path == "/api/settings":
                 cfg = state["cfg"]
-                self._json({"hasKey": bool(state["key"]), "keyHint": key_hint(state["key"]),
+                sub_ok, sub_msg = claude_sub.login_status() if self._is_local() else (False, "")
+                self._json({"hasKey": bool(state["key"]), "keyHint": "" if state["key"] == "subscription" else key_hint(state["key"]),
                             "provider": ai_provider(cfg), "providerLabel": PROVIDER_LABEL[ai_provider(cfg)],
                             "googleModel": cfg.get("google_model", ""),
                             "keys": {"google": key_hint(cfg.get("google_api_key", "")),
                                      "anthropic": key_hint(cfg.get("anthropic_api_key", ""))},
+                            "subscription": {"cli": bool(claude_sub.find_cli()), "loggedIn": sub_ok, "message": sub_msg},
                             "canEdit": self._is_local(), "sdk": anthropic is not None})
             elif self.path == "/api/manuals":
                 cfg = state["cfg"]
@@ -615,7 +626,7 @@ def make_handler(assistant: Assistant, status: dict, health: "Health", state: di
             needs_ai = act in ("search", "build")
             if needs_ai and client is None:
                 return self._json({"error": "이 기능은 Claude API 키가 필요합니다. ⚙ 설정 → API 키에서 넣어 주세요."}, 400)
-            if getattr(client, "provider", "") == "google":
+            if getattr(client, "provider", "") in ("google", "subscription"):
                 if needs_ai:
                     return self._json({"error": "설명서 찾기·요약 만들기는 지금 Claude(Anthropic)로만 됩니다. "
                                                 "Google 고정 상태에서는 이미 만든 설명서 요약을 고르거나 보기만 할 수 있어요."}, 400)
@@ -699,13 +710,21 @@ def make_handler(assistant: Assistant, status: dict, health: "Health", state: di
                     return self._json({"error": "API 키는 이 프로그램이 켜진 컴퓨터에서만 바꿀 수 있습니다."}, 403)
                 # provider: "google" | "anthropic" — 고른 회사로 고정해 저장 (자동 전환 없음)
                 provider = data.get("provider") or ("anthropic" if "anthropic_api_key" in data else ai_provider(state["cfg"]))
-                if provider not in ("google", "anthropic"):
+                if provider not in ("google", "anthropic", "subscription"):
                     return self._json({"error": "알 수 없는 AI 종류입니다."}, 400)
                 raw = data.get("key", data.get("anthropic_api_key"))
                 key = None if raw is None else str(raw).strip().strip('"').strip("'")
                 fields = {"ai_provider": provider}
                 result, msg = "ok", f"{PROVIDER_LABEL[provider]}로 고정했습니다."
-                if provider == "google":
+                if provider == "subscription":
+                    if not claude_sub.find_cli():
+                        return self._json({"error": "Claude 데스크톱 앱(Claude Code)을 찾지 못했습니다. Claude 앱을 설치해 주세요."}, 400)
+                    ok, why = claude_sub.login_status()
+                    if not ok:
+                        result, msg = "nologin", "Claude 구독으로 고정했어요. 이제 'Claude 계정으로 로그인'을 한 번 해 주세요."
+                    else:
+                        msg = f"Claude 구독으로 고정했어요. {why}"
+                elif provider == "google":
                     if key:
                         if not key.startswith("AIza") or len(key) < 30 or any(c.isspace() for c in key):
                             return self._json({"error": "Google AI Studio 키는 AIza 로 시작하는 긴 글자입니다. 다시 복사해 붙여 넣어 주세요."}, 400)
@@ -744,6 +763,14 @@ def make_handler(assistant: Assistant, status: dict, health: "Health", state: di
                 status["provider"] = provider
                 self._json({"ok": True, "result": result, "message": msg, "keyHint": key_hint(active_key),
                             "provider": provider, "googleModel": state["cfg"].get("google_model", "")})
+            elif self.path == "/api/sublogin":
+                if not self._is_local():
+                    return self._json({"error": "이 프로그램이 켜진 컴퓨터에서만 할 수 있습니다."}, 403)
+                try:
+                    claude_sub.start_login()
+                    self._json({"ok": True, "message": "로그인 창과 브라우저가 열려요. Claude 계정으로 로그인한 뒤 '로그인 확인'을 누르세요."})
+                except (RuntimeError, OSError) as e:
+                    self._json({"error": str(e)}, 400)
             elif self.path.startswith("/api/route/"):
                 t = assistant.tools
                 if t is None:

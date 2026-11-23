@@ -1795,8 +1795,9 @@ async function saveConsole(ipValue) {
 }
 
 const PROVIDERS = {
+  subscription: { label: 'Claude 구독 (Pro/Max)', sub: true },
   google: { label: 'Google AI Studio (Gemini)', prefix: 'AIza', ph: 'AIza...', url: 'https://aistudio.google.com/apikey', site: 'Google AI Studio의 API 키 페이지', make: '<b>API 키 만들기(Create API key)</b>' },
-  anthropic: { label: 'Claude (Anthropic)', prefix: 'sk-ant-', ph: 'sk-ant-...', url: 'https://console.anthropic.com/settings/keys', site: 'Claude Console의 API Keys 페이지', make: '<b>Create Key</b>' },
+  anthropic: { label: 'Claude API (충전식)', prefix: 'sk-ant-', ph: 'sk-ant-...', url: 'https://console.anthropic.com/settings/keys', site: 'Claude Console의 API Keys 페이지', make: '<b>Create Key</b>' },
 };
 function keySection(s) {
   // s.provider / s.keys 는 /api/settings 에서 채움 (bindKeySection)
@@ -1809,13 +1810,42 @@ async function bindKeySection(d, onSaved) {
   try { st = await (await fetch('/api/settings')).json(); } catch (e) { box.textContent = '불러오지 못했어요.'; return; }
   let sel = st.provider || 'anthropic';
   const render = () => {
-    const P = PROVIDERS[sel], hint = st.keys[sel];
-    box.innerHTML = `
+    const P = PROVIDERS[sel], hint = st.keys[sel], S = st.subscription || {};
+    const sub = k => k === 'subscription' ? (S.loggedIn ? '✓ ' + esc(S.message) : '키·충전 없이 Claude 계정 구독으로 · 로그인 필요')
+      : (st.keys[k] ? '키 저장됨 · ' + esc(st.keys[k]) : '키 없음') + (k === 'google' && st.googleModel ? ' · 모델 ' + esc(st.googleModel) : '');
+    const head = `
       <p><b>어느 AI를 쓸까요?</b> 고른 AI로 <b>고정</b>돼요. 다른 AI로 저절로 바뀌지 않아요.</p>
       ${Object.entries(PROVIDERS).map(([k, v]) => `<label class="opt"><input type="radio" name="prov" value="${k}" ${k === sel ? 'checked' : ''}>
         <span>${v.label} ${k === st.provider ? '<span class="tag" style="background:var(--ok)">지금 사용 중</span>' : ''}
-        <small>${st.keys[k] ? '키 저장됨 · ' + esc(st.keys[k]) : '키 없음'}${k === 'google' && st.googleModel ? ' · 모델 ' + esc(st.googleModel) : ''}</small></span></label>`).join('')}
-      <hr class="sep">
+        <small>${sub(k)}</small></span></label>`).join('')}
+      <hr class="sep">`;
+    if (P.sub) {
+      box.innerHTML = head + `
+        <p>Claude <b>Pro/Max 구독</b>으로 이 화면의 대화창을 써요. API 키나 충전이 필요 없고, 구독 사용량 안에서 쓰여요.</p>
+        <ol class="steps">
+          <li><b>Claude 계정으로 로그인</b>을 누르면 검은 창과 브라우저가 열려요. 구독 중인 Claude 계정으로 로그인하고 허용하세요. (처음 한 번만)</li>
+          <li><b>로그인 확인</b>으로 로그인됐는지 보고, <b>Claude 구독으로 고정</b>을 누르세요.</li>
+        </ol>
+        <div class="keystate ${S.loggedIn ? 'ok' : ''}">${S.loggedIn ? '✓ ' + esc(S.message) : esc(S.message || '아직 로그인하지 않았어요')}</div>
+        <p><button type="button" id="subLogin" ${S.cli ? '' : 'disabled'}>🔐 Claude 계정으로 로그인</button>
+           <button type="button" id="subCheck">로그인 확인</button>
+           <button type="button" class="primary" id="subUse">Claude 구독으로 고정</button></p>
+        <div class="ctlmsg" id="keyMsg" style="margin-top:8px"></div>
+        <div class="muted">구독 방식은 답이 조금 느릴 수 있어요(몇 초~수십 초). 설명서 찾기·요약 만들기는 Claude API(충전식)에서만 돼요.</div>`;
+      const msg = box.querySelector('#keyMsg');
+      box.querySelectorAll('input[name=prov]').forEach(r => r.onchange = () => { sel = r.value; render(); });
+      box.querySelector('#subLogin').onclick = async () => {
+        try { const r = await post('/api/sublogin', {}); msg.style.color = 'var(--ok)'; msg.textContent = r.message; } catch (e) { msg.style.color = 'var(--err)'; msg.textContent = e.message; }
+      };
+      box.querySelector('#subCheck').onclick = async () => { msg.textContent = '확인하는 중…'; st = await (await fetch('/api/settings')).json(); render(); };
+      box.querySelector('#subUse').onclick = async () => {
+        try { const r = await post('/api/settings', { provider: 'subscription' }); msg.style.color = r.result === 'ok' ? 'var(--ok)' : '#fbbf24'; msg.textContent = r.message;
+          st = await (await fetch('/api/settings')).json(); checkHealth(); onSaved && onSaved(true); setTimeout(render, 1500); }
+        catch (e) { msg.style.color = 'var(--err)'; msg.textContent = e.message; }
+      };
+      return;
+    }
+    box.innerHTML = head + `
       <ol class="steps">
         <li><a href="${P.url}" target="_blank" rel="noopener">${P.site}</a>에서 ${P.make}로 키를 만들어요.</li>
         <li>만든 키(<code>${P.prefix}</code>로 시작)를 붙여 넣고 <b>확인하고 저장</b>을 눌러요. 키 확인은 요금이 들지 않아요.</li>
