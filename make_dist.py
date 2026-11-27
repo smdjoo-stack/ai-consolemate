@@ -70,5 +70,80 @@ def main():
     print("우리 교회 API 키·예배 순서·스피커 이름표·교회 메모는 들어 있지 않습니다.")
 
 
+CHURCH_FIRST = """AI 콘솔메이트 — 우리 교회 설정 포함판 (다른 PC로 옮기기)
+====================================================
+
+이 압축 파일에는 프로그램과 우리 교회 설정(교회 이름·메모, 예배 순서 버튼, 스피커 이름표,
+우리 교회 톤, 설명서 요약)이 들어 있습니다. API 키는 안전을 위해 빼 두었습니다.
+⚠ 교회 내부용입니다. 다른 교회에 줄 때는 make_dist.bat 으로 만든 일반 배포판을 주세요.
+
+1. 새 PC의 원하는 곳(예: 문서 폴더)에 '압축 풀기' 하세요.
+2. 풀린 폴더에서 install.bat 을 더블클릭하세요.
+   - Python이 없으면 자동으로 설치합니다. 중간에 허락을 물으면 '예'.
+   - 바탕화면에 'AI 콘솔메이트' 아이콘이 생깁니다.
+3. 프로그램이 열리면 콘솔을 자동으로 찾아 연결합니다 (같은 공유기에 연결되어 있어야 해요).
+4. AI 대화 연결: 오른쪽 위 ⚙ 설정 → 🔑
+   - Claude 구독: 'Claude 구독 (Pro/Max)' → 'Claude 계정으로 로그인' → '로그인 확인' → 'Claude 구독으로 고정'
+     (새 PC에 Claude 데스크톱 앱이 설치되어 있어야 합니다)
+   - 또는 Claude API 키 / Google AI Studio 키를 넣어도 됩니다.
+5. (선택) Claude 앱 채팅에서도 콘솔을 조작하려면 README.md 의 'Claude 구독으로 쓸 수 있나요?'를 보세요.
+
+필요한 것: 콘솔과 같은 공유기(네트워크), 콘솔 SETUP → REMOTE 의 REMOTE LOCK 꺼짐.
+"""
+CHURCH_FILES = ["scenes.json", "speakers.json", "tones.json"]
+KEEP_CFG = ["church_name", "church_notes", "setup_done", "ai_provider", "google_model", "knowledge",
+            "console_family", "console_serial", "console_name", "web_port", "allow_other_devices"]
+
+
+def main_church():
+    """우리 교회 설정 포함판 — 같은 교회의 다른 PC로 옮길 때. API 키는 넣지 않음."""
+    stamp = time.strftime("%Y%m%d")
+    out_dir = HERE / "dist"
+    out_dir.mkdir(exist_ok=True)
+    try:
+        cfg = json.loads((HERE / "config.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        cfg = {}
+    church = (cfg.get("church_name") or "우리교회").strip()
+    safe = "".join(c for c in church if c.isalnum() or c in " _-").strip().replace(" ", "_") or "우리교회"
+    zpath = out_dir / f"AI콘솔메이트_{safe}용_{stamp}.zip"
+    root = "AI콘솔메이트"
+    new_cfg = {k: cfg[k] for k in KEEP_CFG if k in cfg}
+    new_cfg.update(anthropic_api_key="", google_api_key="", wing_ip="", open_browser=True)   # IP는 자동 찾기
+    included = []
+    with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in FILES:
+            z.write(HERE / f, f"{root}/{f}")
+        z.writestr(f"{root}/config.json", json.dumps(new_cfg, ensure_ascii=False, indent=2))
+        for f in CHURCH_FILES:
+            if (HERE / f).exists():
+                z.write(HERE / f, f"{root}/{f}")
+                included.append(f)
+        mdir = HERE / "manuals"
+        if mdir.is_dir():
+            for p in mdir.iterdir():
+                if p.is_file() and p.suffix in (".md", ".json"):
+                    z.write(p, f"{root}/manuals/{p.name}")
+                    included.append(f"manuals/{p.name}")
+        z.writestr(f"{root}/처음_읽어주세요.txt", CHURCH_FIRST)
+    # 안전 확인: 키가 들어가지 않았는지
+    with zipfile.ZipFile(zpath) as z:
+        names = z.namelist()
+        c2 = json.loads(z.read(f"{root}/config.json"))
+        assert not c2.get("anthropic_api_key") and not c2.get("google_api_key"), "API 키가 들어감!"
+        import re
+        real_key = re.compile(rb"sk-ant-[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{30,}")     # 실제 키 모양 (설명 글자는 통과)
+        for n in names:
+            if n.endswith((".json", ".txt", ".md", ".py", ".html")):
+                assert not real_key.search(z.read(n)), f"키가 들어간 파일: {n}"
+    print(f"만들었습니다: {zpath}  ({zpath.stat().st_size // 1024} KB, 파일 {len(names)}개)")
+    print(f"교회 설정 포함: {church} · " + (", ".join(included) if included else "(추가 설정 파일 없음)"))
+    print("API 키는 넣지 않았습니다.")
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+    if "--church" in sys.argv:
+        main_church()
+    else:
+        main()
